@@ -7,21 +7,22 @@ import os
 import argparse
 import uuid
 
-# ... (CairoSVG and country_data imports remain the same) ...
+# Attempt to import CairoSVG for image generation
 try:
     import cairosvg
 except ImportError:
-    print("DEBUG: CairoSVG import failed or not found.") # More visible debug
+    print("DEBUG: CairoSVG import failed or not found.") 
     cairosvg = None
 else:
     print("DEBUG: CairoSVG imported successfully.")
 
 
+# Import country data from the separate file
 try:
-    from country_data import COUNTRY_COLORS, COUNTRY_CODES
+    from country_data import COUNTRY_COLORS, COUNTRY_CODES 
 except ImportError:
     print("Error: Could not import from country_data.py.")
-    print("Please ensure 'country_data.py' exists in the same directory as this script.")
+    print("Please ensure 'country_data.py' exists in the same directory.")
     exit(1)
 
 SVG_NAMESPACE = "http://www.w3.org/2000/svg"
@@ -33,16 +34,13 @@ CODE_TO_COUNTRY_NAME = {code: name for name, code in COUNTRY_CODES.items()}
 # --- Helper Functions ---
 def get_initial_y_from_d(d_attr):
     if not d_attr: return None
-    # Regex to find the first moveto command (M or m) and capture Y
     match = re.match(r"^\s*[mM]\s*([+-]?\d*\.?\d+(?:[eE][+-]?\d+)?)\s*[, ]\s*([+-]?\d*\.?\d+(?:[eE][+-]?\d+)?)", d_attr.strip())
     return float(match.group(2)) if match else None
-
 
 def create_gradient_definition(defs_element, colors, gradient_id_base, gradient_direction):
     gradient_id = f"{gradient_id_base}-{gradient_direction}-gradient-{uuid.uuid4().hex[:6]}"
     existing_gradient = defs_element.find(f".//{{{SVG_NAMESPACE}}}linearGradient[@id='{gradient_id}']")
     if existing_gradient is not None: defs_element.remove(existing_gradient)
-
     coords = {"x1": "0%", "y1": "0%", "x2": ("0%" if gradient_direction == "vertical" else "100%"), "y2": ("100%" if gradient_direction == "vertical" else "0%")}
     gradient_element = ET.SubElement(defs_element, f"{{{SVG_NAMESPACE}}}linearGradient", {"id": gradient_id, **coords})
     num_colors = len(colors)
@@ -55,140 +53,103 @@ def create_gradient_definition(defs_element, colors, gradient_id_base, gradient_
             ET.SubElement(gradient_element, f"{{{SVG_NAMESPACE}}}stop", {"offset": f"{offset:.2f}%", "style": f"stop-color:{color};stop-opacity:1"})
     return gradient_id
 
-
 def create_flag_pattern_definition(defs_element, country_code, pattern_id_base):
     pattern_id = f"{pattern_id_base}-flag-pattern-{uuid.uuid4().hex[:6]}"
     flag_svg_path = os.path.join("flags", f"{country_code}.svg")
-
     if not os.path.exists(flag_svg_path):
-        print(f"Warning: Flag SVG not found at '{flag_svg_path}'. Cannot create pattern.")
+        print(f"Warning: Flag SVG not found at '{flag_svg_path}'.")
         return None
     try:
         flag_tree = ET.parse(flag_svg_path)
         flag_root = flag_tree.getroot()
     except Exception as e:
-        print(f"Warning: Could not load/parse flag SVG '{flag_svg_path}': {e}. Cannot create pattern.")
+        print(f"Warning: Could not load/parse flag SVG '{flag_svg_path}': {e}.")
         return None
-
     existing_pattern = defs_element.find(f".//{{{SVG_NAMESPACE}}}pattern[@id='{pattern_id}']")
     if existing_pattern is not None: defs_element.remove(existing_pattern)
-
     flag_viewbox = flag_root.get("viewBox", "0 0 100 100")
     vb_parts = flag_viewbox.split()
     p_width = flag_root.get("width", vb_parts[2] if len(vb_parts) == 4 else "100")
     p_height = flag_root.get("height", vb_parts[3] if len(vb_parts) == 4 else "100")
-
-    pattern_attribs = {
-        "id": pattern_id, "patternUnits": "userSpaceOnUse",
-        "width": p_width, "height": p_height,
-        "viewBox": flag_viewbox, "preserveAspectRatio": "xMidYMid slice"
-    }
+    pattern_attribs = {"id": pattern_id, "patternUnits": "userSpaceOnUse", "width": p_width, "height": p_height, "viewBox": flag_viewbox, "preserveAspectRatio": "xMidYMid slice"}
     pattern_element = ET.SubElement(defs_element, f"{{{SVG_NAMESPACE}}}pattern", pattern_attribs)
+    skip_tags = ["defs", "style", "metadata", "title", "desc", "sodipodi:namedview", "inkscape:perspective"]
     for child in flag_root:
-        if child.tag.split('}')[-1] not in ["defs", "style", "metadata", "title", "desc", "sodipodi:namedview", "inkscape:perspective"]: # Added more Inkscape/Sodipodi specific tags to ignore
+        tag_name = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+        if tag_name not in skip_tags:
             pattern_element.append(child)
     return pattern_id
 
-
 def get_simple_path_bbox(d_attr):
     if not d_attr: return None
-    points_x = []
-    points_y = []
-    
-    # More robust regex to find numbers, including scientific notation and handling leading commands
-    # This will try to find all coordinate pairs following commands.
-    # It's still not a full parser but better than just finding numbers.
+    points_x, points_y = [], []
     path_commands = re.findall(r"([mMlLhHvVcCsSqQtTaAzZ])([^mMlLhHvVcCsSqQtTaAzZ]*)", d_attr)
-    
     current_x, current_y = 0, 0
-    
-    for cmd, params_str in path_commands:
+    start_of_subpath_x, start_of_subpath_y = 0, 0
+    for cmd_idx, (cmd, params_str) in enumerate(path_commands):
         params = [float(p) for p in re.findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", params_str)]
-        
         idx = 0
         is_relative = cmd.islower()
         cmd_upper = cmd.upper()
-
-        if cmd_upper == 'M': # Moveto
-            while idx < len(params):
-                px = params[idx] + (current_x if is_relative and points_x else 0)
-                py = params[idx+1] + (current_y if is_relative and points_y else 0)
-                points_x.append(px)
-                points_y.append(py)
-                current_x, current_y = px, py
-                idx += 2
-                if cmd_upper == 'M': cmd_upper = 'L' # Subsequent pairs for M are L
-        elif cmd_upper == 'L': # Lineto
-             while idx < len(params):
+        original_cmd_upper = cmd_upper 
+        if cmd_upper == 'M':
+            px = params[idx] + (current_x if is_relative and cmd_idx > 0 and (points_x or points_y) else 0) # check if points_x/y exist before adding current_x/y for relative M
+            py = params[idx+1] + (current_y if is_relative and cmd_idx > 0 and (points_x or points_y) else 0)
+            points_x.append(px); points_y.append(py)
+            current_x, current_y = px, py
+            start_of_subpath_x, start_of_subpath_y = px, py
+            idx += 2
+            cmd_upper = 'L' 
+        while idx < len(params):
+            if cmd_upper == 'L':
                 px = params[idx] + (current_x if is_relative else 0)
                 py = params[idx+1] + (current_y if is_relative else 0)
-                points_x.append(px)
-                points_y.append(py)
+                points_x.append(px); points_y.append(py)
                 current_x, current_y = px, py
                 idx += 2
-        elif cmd_upper == 'H': # Horizontal lineto
-            while idx < len(params):
+            elif cmd_upper == 'H':
                 px = params[idx] + (current_x if is_relative else 0)
                 py = current_y
-                points_x.append(px)
-                points_y.append(py)
+                points_x.append(px); points_y.append(py)
                 current_x = px
                 idx += 1
-        elif cmd_upper == 'V': # Vertical lineto
-            while idx < len(params):
+            elif cmd_upper == 'V':
                 px = current_x
                 py = params[idx] + (current_y if is_relative else 0)
-                points_x.append(px)
-                points_y.append(py)
+                points_x.append(px); points_y.append(py)
                 current_y = py
                 idx += 1
-        elif cmd_upper in ['C', 'S', 'Q', 'T', 'A']: # Curves - just take end points for this simple bbox
-            # For C: x1 y1 x2 y2 x y (take x,y)
-            # For S: x2 y2 x y (take x,y)
-            # For Q: x1 y1 x y (take x,y)
-            # For T: x y (take x,y)
-            # For A: ... x y (take x,y)
-            num_coords_per_segment_end = 2 
-            if cmd_upper == 'C': num_params_per_segment = 6
-            elif cmd_upper == 'S': num_params_per_segment = 4
-            elif cmd_upper == 'Q': num_params_per_segment = 4
-            elif cmd_upper == 'T': num_params_per_segment = 2
-            elif cmd_upper == 'A': num_params_per_segment = 7 # rx ry x-axis-rotation large-arc-flag sweep-flag x y
-            else: continue
-
-            while idx + num_params_per_segment <= len(params):
-                end_point_idx_offset = num_params_per_segment - num_coords_per_segment_end
+            elif cmd_upper in ['C', 'S', 'Q', 'T', 'A']:
+                num_params_per_segment = {'C': 6, 'S': 4, 'Q': 4, 'T': 2, 'A': 7}.get(cmd_upper, 0)
+                if num_params_per_segment == 0 or idx + num_params_per_segment > len(params): break
+                end_point_idx_offset = num_params_per_segment - 2
                 px = params[idx + end_point_idx_offset] + (current_x if is_relative else 0)
                 py = params[idx + end_point_idx_offset + 1] + (current_y if is_relative else 0)
-                points_x.append(px)
-                points_y.append(py)
+                points_x.append(px); points_y.append(py) # Add intermediate control points too for curves
+                if cmd_upper == 'C': 
+                    points_x.append(params[idx] + (current_x if is_relative else 0)); points_y.append(params[idx+1] + (current_y if is_relative else 0))
+                    points_x.append(params[idx+2] + (current_x if is_relative else 0)); points_y.append(params[idx+3] + (current_y if is_relative else 0))
+                elif cmd_upper == 'S' or cmd_upper == 'Q':
+                    points_x.append(params[idx] + (current_x if is_relative else 0)); points_y.append(params[idx+1] + (current_y if is_relative else 0))
+
                 current_x, current_y = px, py
                 idx += num_params_per_segment
-        elif cmd_upper == 'Z': # Close path
-            if points_x: # Go back to the first point of the current subpath
-                # This doesn't add new points to bbox, just closes the shape
-                pass 
-    
+            else: break
+        if original_cmd_upper == 'Z':
+            if points_x: current_x, current_y = start_of_subpath_x, start_of_subpath_y
     if not points_x or not points_y:
-        # Fallback if no points extracted (e.g., malformed path or only Z)
-        print("Warning: BBox calculation could not extract points from path. Using default small bbox.")
+        print("Warning: BBox calculation could not extract points. Using default.")
         return {"x": 0, "y": 0, "width": 1, "height": 1}
-
     min_x, max_x = min(points_x), max(points_x)
     min_y, max_y = min(points_y), max(points_y)
-    
-    return {
-        "x": min_x, "y": min_y, 
-        "width": max_x - min_x if max_x > min_x else 1,
-        "height": max_y - min_y if max_y > min_y else 1
-    }
+    return {"x": min_x, "y": min_y, "width": max_x - min_x if max_x > min_x else 1, "height": max_y - min_y if max_y > min_y else 1}
+
 
 def apply_fill_to_leaf(svg_string, country_name, country_code, fill_type="gradient", gradient_direction="horizontal"):
-    print(f"DEBUG: apply_fill_to_leaf called for {country_name}, code: {country_code}, fill: {fill_type}, dir: {gradient_direction}")
+    print(f"DEBUG: apply_fill_to_leaf for {country_name} ({country_code}), fill: {fill_type}, dir: {gradient_direction}")
     if country_name not in COUNTRY_COLORS:
-        print(f"Error: Data for country '{country_name}' (code: {country_code}) not defined.")
+        print(f"Error: Data for country '{country_name}' not defined.")
         return None
-
     try:
         root = ET.fromstring(svg_string)
     except ET.ParseError as e:
@@ -201,153 +162,140 @@ def apply_fill_to_leaf(svg_string, country_name, country_code, fill_type="gradie
         print("DEBUG: Created <defs> element.")
 
     pattern_id_base = f"{country_code}-leaf-{uuid.uuid4().hex[:4]}"
+    
+    _target_path_element = None
+    _target_path_index = -1
+    _identified_by = "None (Initial Value)"
 
-    # --- Identify target leaf ---
-    target_path_element = None
-    target_path_index = -1 # Store index for replacement
-    identified_by = "None" # Initialize
-
-    # Ensure this group ID matches your SVG structure
-    layer_group_id = "Layer_1-2" 
-    layer_group = root.find(f".//{{{SVG_NAMESPACE}}}g[@id='{layer_group_id}']") 
+    layer_group_id = "Layer_1-2"
+    layer_group = root.find(f".//{{{SVG_NAMESPACE}}}g[@id='{layer_group_id}']")
 
     if layer_group is None:
-        print(f"Error: Could not find the layer group '{layer_group_id}'. Please check main SVG structure.")
-        # Fallback: search for the path anywhere in the SVG (less ideal)
-        # layer_group = root 
-        # print(f"DEBUG: Searching for path in root due to missing '{layer_group_id}'.")
-        return ET.tostring(root, encoding="unicode", method="xml") # Early exit if group is essential
-
-    print(f"DEBUG: Found group '{layer_group_id}'. Number of children: {len(list(layer_group))}")
-
-    # Path identification strategy:
-    # 1. Try specific 'd' attribute start (most reliable if known and stable).
-    # 2. Fallback: Iterate cls-2 paths, pick one with smallest Y (original logic).
-    # 3. Ultimate Fallback: If no cls-2, iterate *all* paths in the group and pick smallest Y.
+        print(f"Error: Could not find layer group '{layer_group_id}'.")
+        return ET.tostring(root, encoding="unicode", method="xml")
     
-    # Strategy 1: Specific d-attribute
-    specific_d_start_leaf = "m284.59,97c" # The "top leaf" d-attribute start
-    
+    print(f"DEBUG: Found group '{layer_group_id}'. Children: {len(list(layer_group))}")
     all_paths_in_group = [el for el in list(layer_group) if el.tag == f"{{{SVG_NAMESPACE}}}path"]
-    print(f"DEBUG: Total paths found in '{layer_group_id}': {len(all_paths_in_group)}")
-    
+    print(f"DEBUG: Paths in '{layer_group_id}': {len(all_paths_in_group)}")
+
+    specific_d_start_leaf = "m284.59,97c" 
     for i, path_el in enumerate(all_paths_in_group):
         path_d = path_el.get("d", "")
-        # print(f"DEBUG: Checking path {i} with d starting: {path_d[:20]}...") # Verbose
         if path_d.strip().startswith(specific_d_start_leaf):
-            target_path_element = path_el
-            identified_by = f"specific d-attribute '{specific_d_start_leaf}...'"
-            target_path_index = layer_group.getchildren().index(path_el) if hasattr(layer_group, 'getchildren') else list(layer_group).index(path_el)
-            print(f"DEBUG: Leaf found by specific 'd' at index {target_path_index}.")
-            break
+            _target_path_element = path_el
+            _identified_by = f"specific d-attribute '{specific_d_start_leaf}...'"
+            try:
+                 _target_path_index = list(layer_group).index(path_el)
+            except ValueError:
+                 print(f"ERROR: Path by D-attr not in layer_group children list.")
+                 _target_path_index = -1 
+            print(f"DEBUG (Strat 1): Leaf by 'd'. Element: {_target_path_element}, Index: {_target_path_index}")
+            break 
     
-    # Strategy 2 & 3: Fallback to class or general Y-coordinate
-    if not target_path_element:
-        print(f"DEBUG: Leaf not found by specific 'd'. Trying class/Y-coordinate method.")
+    if _target_path_element is None: 
+        print(f"DEBUG: Leaf not by 'd'. Trying class/Y-coord.")
         min_y = float('inf')
-        
-        candidate_paths_for_y_check = []
         cls2_paths = [p for p in all_paths_in_group if p.get("class") == "cls-2"]
-
-        if cls2_paths:
-            print(f"DEBUG: Found {len(cls2_paths)} paths with class 'cls-2'.")
-            candidate_paths_for_y_check = cls2_paths
-            id_method_prefix = "cls-2 path with "
+        candidate_paths_for_y_check = cls2_paths if cls2_paths else all_paths_in_group
+        id_method_prefix = "cls-2 path with " if cls2_paths else "any path with "
+        
+        if not candidate_paths_for_y_check: 
+            print("DEBUG: No candidates for Y-check.")
         else:
-            print("DEBUG: No 'cls-2' paths found. Checking all paths in group for min Y.")
-            candidate_paths_for_y_check = all_paths_in_group
-            id_method_prefix = "any path with "
-
-        if not candidate_paths_for_y_check:
-            print("DEBUG: No candidate paths found at all for Y-coordinate check.")
-
-        for path_el in candidate_paths_for_y_check:
-            path_d = path_el.get("d", "")
-            y_coord = get_initial_y_from_d(path_d)
-            if y_coord is not None:
-                # print(f"DEBUG: Path with Y={y_coord:.2f}, current min_y={min_y:.2f}") # Verbose
-                if y_coord < min_y:
+            print(f"DEBUG: Candidates for Y-check: {len(candidate_paths_for_y_check)}")
+            for path_el in candidate_paths_for_y_check:
+                path_d = path_el.get("d", "")
+                y_coord = get_initial_y_from_d(path_d)
+                if y_coord is not None and y_coord < min_y:
                     min_y = y_coord
-                    target_path_element = path_el
-                    identified_by = f"{id_method_prefix}min Y-coordinate ({min_y:.2f})"
-                    target_path_index = list(layer_group).index(path_el)
-        if target_path_element:
-             print(f"DEBUG: Leaf found by Y-coordinate method at index {target_path_index}.")
+                    _target_path_element = path_el
+                    _identified_by = f"{id_method_prefix}min Y ({min_y:.2f})"
+                    try:
+                        _target_path_index = list(layer_group).index(path_el)
+                    except ValueError:
+                        print(f"ERROR: Path by Y-coord not in layer_group children list.")
+                        _target_path_index = -1
+            if _target_path_element is not None: 
+                print(f"DEBUG (Strat 2/3): Leaf by Y. Element: {_target_path_element}, Index: {_target_path_index}, Method: {_identified_by}")
 
+    print(f"DEBUG (Before Final Check): _target_path_element: {_target_path_element}, _identified_by: '{_identified_by}'")
 
-    if not target_path_element:
-        print(f"Error: Could not identify the target 'top leaf' path using any method. Identified_by: {identified_by}")
+    if _target_path_element is None: 
+        print(f"Error: Could not identify target 'top leaf' path. Final _identified_by: '{_identified_by}'")
         return ET.tostring(root, encoding="unicode", method="xml")
 
-    print(f"DEBUG: Successfully identified target leaf. Method: {identified_by}")
+    target_path_element = _target_path_element # Assign to final variable
+    target_path_index = _target_path_index     # Assign to final variable
+    
+    print(f"DEBUG: Successfully identified target. Element: {target_path_element}, Method: {_identified_by}, Index in Parent: {target_path_index}")
     leaf_d_attribute = target_path_element.get("d")
-    if not leaf_d_attribute:
-        print("Error: Target leaf path has no 'd' attribute. This should not happen if path was identified.")
+    if not leaf_d_attribute: 
+        print("Error: Target leaf path has no 'd' attribute.")
         return ET.tostring(root, encoding="unicode", method="xml")
 
-    # --- Apply chosen fill type ---
-    fill_applied_successfully = False # Flag to track if flag-svg fill worked
+    fill_applied_successfully = False
 
     if fill_type == "flag-svg":
-        print(f"Info: Attempting to use flag SVG with clip-path for {country_name}.")
+        print(f"Info: Attempting flag SVG clip-path for {country_name}.")
         pattern_id = create_flag_pattern_definition(defs_element, country_code, pattern_id_base)
         
         if pattern_id:
             clip_path_id = f"clip-{pattern_id_base}-{uuid.uuid4().hex[:6]}"
-            
             clip_path_el = ET.SubElement(defs_element, f"{{{SVG_NAMESPACE}}}clipPath", {"id": clip_path_id})
-            ET.SubElement(clip_path_el, f"{{{SVG_NAMESPACE}}}path", {"d": leaf_d_attribute, "fill":"#000000"}) # Fill for clipPath path is irrelevant but some renderers might need it
+            ET.SubElement(clip_path_el, f"{{{SVG_NAMESPACE}}}path", {"d": leaf_d_attribute})
             
             bbox = get_simple_path_bbox(leaf_d_attribute) 
-            if not bbox: 
-                print("Warning: Could not calculate bounding box for leaf. Using default rect size for flag pattern.")
-                # A more robust fallback might be needed if bbox is crucial and often fails
-                # For now, let's assume the pattern's own preserveAspectRatio will handle it mostly
-                bbox_attrs = {"width": "100%", "height": "100%", "x": "0", "y": "0"} # Relative to viewport
-            else:
-                bbox_attrs = {"x": str(bbox['x']), "y": str(bbox['y']), "width": str(bbox['width']), "height": str(bbox['height'])}
-
+            bbox_attrs = {"x": str(bbox['x']), "y": str(bbox['y']), 
+                          "width": str(bbox['width']), "height": str(bbox['height'])} if bbox else \
+                         {"width": "200%", "height": "200%", "x": "-50%", "y": "-50%"} 
 
             clipped_group = ET.Element(f"{{{SVG_NAMESPACE}}}g", {"clip-path": f"url(#{clip_path_id})"})
             ET.SubElement(clipped_group, f"{{{SVG_NAMESPACE}}}rect", {**bbox_attrs, "fill": f"url(#{pattern_id})"})
             
-            # Structural change: replace path with group
-            print(f"DEBUG: Replacing original path at index {target_path_index} with new clipped group.")
-            layer_group.remove(target_path_element) 
-            layer_group.insert(target_path_index, clipped_group)
-
-            print(f"Info: Applied flag SVG pattern for {country_name} using clip-path '{clip_path_id}'.")
-            fill_applied_successfully = True
+            if target_path_index != -1 and target_path_index < len(list(layer_group)) and list(layer_group)[target_path_index] is target_path_element:
+                print(f"DEBUG: Replacing original path at index {target_path_index} with new clipped group.")
+                layer_group.pop(target_path_index)
+                layer_group.insert(target_path_index, clipped_group)
+                print(f"Info: Applied flag SVG pattern for {country_name} using clip-path '{clip_path_id}'.")
+                fill_applied_successfully = True
+            else:
+                print(f"ERROR: Mismatch or invalid index ({target_path_index}) for replacing element. Flag SVG fill failed.")
+                fill_applied_successfully = False
         else: 
-            print(f"Warning: Flag SVG pattern creation failed for {country_code}. Falling back to gradient.")
-            fill_applied_successfully = False # Explicitly set
+            print(f"Warning: Flag SVG pattern creation failed. Falling back to gradient.")
+            fill_applied_successfully = False
 
-
-    # Fallback to gradient or if explicitly chosen
-    # If flag-svg was chosen but failed, target_path_element is still the original path (it wasn't replaced)
-    # If flag-svg succeeded, target_path_element was removed, so this block shouldn't try to set its fill.
     if fill_type == "gradient" or (fill_type == "flag-svg" and not fill_applied_successfully):
-        if target_path_element.getparent() is None and fill_type == "flag-svg" and not fill_applied_successfully:
-             print("DEBUG: Original target path seems to have been detached unexpectedly during a failed flag-svg attempt. This indicates a logic flaw.")
-             # This state should not be reached if replacement logic is correct
+        path_for_gradient = None
+        is_still_child = False
+        try:
+            if target_path_element in list(layer_group): # Check if the originally identified element is still a child
+                is_still_child = True
+        except Exception as e:
+            print(f"DEBUG: Error checking parentage for gradient: {e}")
+
+        if is_still_child:
+            path_for_gradient = target_path_element
+            if fill_type == "flag-svg" and not fill_applied_successfully:
+                 print("DEBUG: Applying gradient as fallback for failed flag-svg.")
+            elif fill_type == "gradient":
+                 print("DEBUG: Applying gradient as chosen fill type.")
         else:
+            print(f"ERROR: Target path for gradient is no longer a direct child of the layer group or reference is stale. Identified by: {_identified_by}. Cannot apply gradient.")
+
+        if path_for_gradient is not None:
             colors = COUNTRY_COLORS[country_name]
             gradient_id = create_gradient_definition(defs_element, colors, pattern_id_base, gradient_direction)
-            # Ensure target_path_element is still valid before setting fill
-            # This is crucial if it might have been removed by a failed flag-svg attempt that partially modified the tree
-            if target_path_element.getparent() is not None: # Check if it's still in the tree
-                target_path_element.set("fill", f"url(#{gradient_id})")
-                if 'class' in target_path_element.attrib:
-                    target_path_element.attrib.pop('class')
-                print(f"Info: Applied {gradient_direction} gradient for {country_name} (Identified by: {identified_by}).")
-            else:
-                print("ERROR: Target path for gradient fill was unexpectedly removed from the SVG tree. Gradient not applied.")
-
-
+            path_for_gradient.set("fill", f"url(#{gradient_id})")
+            if 'class' in path_for_gradient.attrib:
+                path_for_gradient.attrib.pop('class')
+            print(f"Info: Applied {gradient_direction} gradient for {country_name} (Path d: {path_for_gradient.get('d', '')[:30]}...).")
+        elif not (fill_type == "flag-svg" and fill_applied_successfully):
+            print("ERROR: Could not apply gradient: target path unavailable.")
+            
     return ET.tostring(root, encoding="unicode", method="xml")
 
 
-# --- Main execution ---
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Apply a country's flag (gradient or SVG pattern) to an SVG leaf and export.",
@@ -432,7 +380,7 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"Error converting SVG to PNG: {e}")
         elif not cairosvg:
-             pass # Message already printed
+             pass 
     else:
         print(f"\nSVG modification failed for {chosen_country_name}. No output generated.")
         exit(1)
