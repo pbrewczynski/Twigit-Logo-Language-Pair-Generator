@@ -254,7 +254,8 @@ def apply_fill_to_leaf(svg_string, country_name, country_code, fill_type="gradie
             
             if target_path_index != -1 and target_path_index < len(list(layer_group)) and list(layer_group)[target_path_index] is target_path_element:
                 print(f"DEBUG: Replacing original path at index {target_path_index} with new clipped group.")
-                layer_group.pop(target_path_index)
+                # layer_group.pop(target_path_index)
+                layer_group.remove(target_path_element)
                 layer_group.insert(target_path_index, clipped_group)
                 print(f"Info: Applied flag SVG pattern for {country_name} using clip-path '{clip_path_id}'.")
                 fill_applied_successfully = True
