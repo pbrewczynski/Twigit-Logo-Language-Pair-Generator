@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" 
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     viewBox="0 0 300 500" width="300" height="500">
+  <defs>
+    <polygon id="wedge-shape" points="0,0 150,250 0,500" /> 
+  </defs>
+  <rect x="0" y="250" width="300" height="250" fill="#D7141A" /> 
+  <rect x="0" y="0" width="300" height="250" fill="#FFFFFF" />
+  <use xlink:href="#wedge-shape" fill="#11457E" />
+</svg>

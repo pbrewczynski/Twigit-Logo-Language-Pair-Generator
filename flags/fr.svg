@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools -->
+
+<svg
+   width="800"
+   height="800"
+   viewBox="0 0 36 36"
+   aria-hidden="true"
+   role="img"
+   class="iconify iconify--twemoji"
+   preserveAspectRatio="xMidYMid"
+   version="1.1"
+   id="svg844"
+   sodipodi:docname="fr.svg"
+   inkscape:version="1.2.2 (b0a84865, 2022-12-01)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs848" />
+  <sodipodi:namedview
+     id="namedview846"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     showgrid="false"
+     inkscape:zoom="1.0425"
+     inkscape:cx="295.92326"
+     inkscape:cy="324.22062"
+     inkscape:window-width="1920"
+     inkscape:window-height="984"
+     inkscape:window-x="1080"
+     inkscape:window-y="482"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="svg844" />
+  <g
+     id="g416"
+     transform="translate(-1.5971223,1.381295)">
+    <path
+       fill="#d7141a"
+       d="M 1.383,29.973 A 3.795,3.795 0 0 0 4,31 h 28 c 2.209,0 4,-1.791 4,-4.5 V 18 H 17.5 Z"
+       id="path838" />
+    <path
+       fill="#eeeeee"
+       d="M 32,5 H 4 A 3.98,3.98 0 0 0 1.354,6.006 L 17.5,18 H 36 V 9 A 4,4 0 0 0 32,5 Z"
+       id="path840" />
+    <path
+       fill="#11457e"
+       d="M 1.383,29.973 17.5,18 1.354,6.006 A 3.985,3.985 0 0 0 0,9 v 17.5 c 0,1.48 0.537,2.683 1.383,3.473 z"
+       id="path842" />
+  </g>
+</svg>

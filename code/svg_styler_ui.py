@@ -13,7 +13,7 @@ import os
 try:
     from svg_styler_core import (
         process_svg, COUNTRY_CODES, COUNTRY_NAMES_SORTED,
-        cairosvg, create_argument_parser
+        cairosvg, create_argument_parser, CODE_TO_COUNTRY_NAME
     )
 except ImportError:
     # A simple tk root to show the error if core module fails
@@ -31,8 +31,8 @@ class SvgStylerApp(tk.Tk):
         """
         super().__init__()
         self.title("SVG Leaf Styler")
-        self.geometry("800x850")
-        self.minsize(650, 750)
+        self.geometry("800x950")
+        self.minsize(650, 850)
         self.last_svg_content = None
 
         # A flag to ensure we only set the sash position once.
@@ -59,8 +59,22 @@ class SvgStylerApp(tk.Tk):
         ttk.Separator(controls_frame, orient='horizontal').pack(fill='x', pady=10, padx=5)
         self.controls['Right Leaf'] = self._create_leaf_controls(controls_frame, "Right Leaf")
 
+        # --- CLI Command Preview Section ---
+        command_frame = ttk.LabelFrame(controls_frame, text=" CLI Command Preview ", padding="10")
+        command_frame.pack(side='bottom', fill='x', pady=(20, 0), padx=5)
+        
+        # Use a monospace font for better command readability
+        monospace_font = ("Menlo", 11) if self.tk.call('tk', 'windowingsystem') == 'aqua' else ("Consolas", 10)
+        self.command_text_widget = tk.Text(command_frame, height=7, wrap='word', relief='sunken', borderwidth=1, font=monospace_font)
+        self.command_text_widget.pack(fill='x', expand=True, padx=2, pady=2)
+        
+        self.command_text_widget.insert('1.0', "Enable a leaf to see the equivalent command.")
+        self.command_text_widget.config(state='disabled')
+
+
+        # --- Action Frame ---
         action_frame = ttk.Frame(controls_frame)
-        action_frame.pack(side='bottom', fill='x', pady=(20, 0), padx=5)
+        action_frame.pack(side='bottom', fill='x', pady=(10, 0), padx=5)
         self.save_button = ttk.Button(action_frame, text="Save As...", command=self.save_files, state='disabled')
         self.save_button.pack(side="right")
 
@@ -219,6 +233,8 @@ class SvgStylerApp(tk.Tk):
         top_params = next((p for p in params_list if p['leaf_name'] == 'Top'), None)
         right_params = next((p for p in params_list if p['leaf_name'] == 'Right'), None)
         
+        self.generate_and_display_command(left_params, top_params, right_params)
+        
         status, svg_content = process_svg(top_params=top_params, right_params=right_params, left_params=left_params)
         
         if not svg_content:
@@ -237,6 +253,42 @@ class SvgStylerApp(tk.Tk):
         except Exception as e:
             self.preview_label.config(image=None, text=f"Error rendering preview:\n{e}")
             self.save_button.config(state='disabled')
+
+    def generate_and_display_command(self, left_params, top_params, right_params):
+        """Generates the CLI command based on current UI settings and displays it."""
+        all_params_data = [
+            ('left', left_params),
+            ('top', top_params),
+            ('right', right_params)
+        ]
+        
+        active_params_data = [p for p in all_params_data if p[1] is not None]
+
+        if not active_params_data:
+            final_command = "Enable a leaf to see the equivalent command."
+        else:
+            command_parts = ["python3 svg_styler_cli.py --output my_logo"]
+            for prefix, params in active_params_data:
+                country_name = CODE_TO_COUNTRY_NAME[params['country_code']]
+                command_parts.append(f'--{prefix}-country "{country_name}"')
+                command_parts.append(f'--{prefix}-fill-type {params["fill_type"]}')
+                
+                if params['fill_type'] == 'gradient':
+                    command_parts.append(f'--{prefix}-direction {params["direction"]}')
+                    command_parts.append(f'--{prefix}-transition {params["transition"]:.1f}')
+                else:  # flag-svg
+                    command_parts.append(f'--{prefix}-zoom {params["zoom"]:.1f}')
+                    command_parts.append(f'--{prefix}-pan-x {params["pan_x"]:.1f}')
+                    command_parts.append(f'--{prefix}-pan-y {params["pan_y"]:.1f}')
+            
+            # For nice formatting in the UI, join with backslashes for line continuation
+            final_command = " \\\n    ".join(command_parts)
+        
+        # Update the text widget content
+        self.command_text_widget.config(state='normal')
+        self.command_text_widget.delete('1.0', tk.END)
+        self.command_text_widget.insert('1.0', final_command)
+        self.command_text_widget.config(state='disabled')
 
     def save_files(self):
         if not self.last_svg_content: return

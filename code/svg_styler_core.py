@@ -147,9 +147,21 @@ def modify_leaf_fill(root_element, defs_element, layer_group, leaf_id_method, le
             clip_path_el = ET.SubElement(defs_element, f"{{{SVG_NAMESPACE}}}clipPath", {"id": clip_path_id})
             ET.SubElement(clip_path_el, f"{{{SVG_NAMESPACE}}}path", {"d": leaf_d_attribute})
             bbox = get_simple_path_bbox(leaf_d_attribute)
-            bbox_attrs = {"x":str(bbox['x']),"y":str(bbox['y']),"width":str(bbox['width']),"height":str(bbox['height'])} if bbox else {}
+            if bbox:
+                # Add a buffer to the bounding box to prevent pattern truncation
+                # on shapes with curves, where the simple bbox calculation can be inaccurate.
+                buffer = 5
+                bbox_attrs = {
+                    "x": str(bbox['x'] - buffer),
+                    "y": str(bbox['y'] - buffer),
+                    "width": str(bbox['width'] + (buffer * 2)),
+                    "height": str(bbox['height'] + (buffer * 2))
+                }
+            else: # Fallback if bbox calculation fails
+                bbox_attrs = {"x": "0", "y": "0", "width": "100%", "height": "100%"}
             clipped_group = ET.Element(f"{{{SVG_NAMESPACE}}}g", {"clip-path": f"url(#{clip_path_id})"})
-            ET.SubElement(clipped_group, f"{{{SVG_NAMESPACE}}}rect", {**bbox_attrs, "fill": f"url(#{pattern_id})", "width":"100%", "height":"100%"})
+            rect_attrs = {**bbox_attrs, "fill": f"url(#{pattern_id})"}
+            ET.SubElement(clipped_group, f"{{{SVG_NAMESPACE}}}rect", rect_attrs)
             layer_group.remove(target_path_element)
             layer_group.insert(target_path_index, clipped_group)
             fill_applied_successfully = True
@@ -164,7 +176,7 @@ def modify_leaf_fill(root_element, defs_element, layer_group, leaf_id_method, le
 def process_svg(top_params=None, right_params=None, left_params=None):
     """Generates the final SVG content as a string."""
     input_svg_content = """<?xml version="1.0" encoding="UTF-8"?>
-<svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 633.54 506.72">
+<svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 640 510">
   <defs>
     <style> .cls-1 { fill: #088180; } .cls-1, .cls-2 { stroke-width: 0px; } .cls-2 { fill: #fff; } </style>
   </defs>
