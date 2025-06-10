@@ -19,7 +19,7 @@ except ImportError:
     messagebox.showerror("Initialization Error", "Could not import from svg_styler_core.py.\nPlease ensure it is in the same directory and all its dependencies (like CairoSVG) are installed.")
     exit()
 
-# --- UI Application Class (mostly unchanged, just uses imported functions/data) ---
+# --- UI Application Class ---
 class SvgStylerApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -28,14 +28,23 @@ class SvgStylerApp(tk.Tk):
         self.minsize(650, 550)
         self.last_svg_content = None
 
+        # A flag to ensure we only set the sash position once.
+        self._sash_set = False
+
         main_paned_window = ttk.PanedWindow(self, orient='horizontal')
         main_paned_window.pack(fill='both', expand=True, padx=10, pady=10)
 
-        controls_frame = ttk.Frame(main_paned_window, width=350)
+        # --- THE FIX: Bind to the <Configure> event ---
+        # This event fires when the widget is first sized. We use it to
+        # set the sash position to 50% of the width. The self._sash_set flag
+        # ensures this only happens ONCE, allowing the user to resize freely after.
+        main_paned_window.bind("<Configure>", self.set_initial_sash_position)
+
+        controls_frame = ttk.Frame(main_paned_window)
         main_paned_window.add(controls_frame, weight=1)
 
         preview_frame = ttk.LabelFrame(main_paned_window, text=" Live Preview ", padding="10")
-        main_paned_window.add(preview_frame, weight=2)
+        main_paned_window.add(preview_frame, weight=2) # Preview pane gets more space when resizing
         self.preview_label = ttk.Label(preview_frame, text="Enable a leaf to see a preview.")
         self.preview_label.pack(fill='both', expand=True)
 
@@ -50,6 +59,15 @@ class SvgStylerApp(tk.Tk):
         self.save_button.pack(side="right")
 
         self.update_preview()
+
+    def set_initial_sash_position(self, event):
+        """Callback for the <Configure> event to set the sash to 50% width."""
+        if not self._sash_set:
+            paned_window = event.widget
+            # We check for a width > 1 to avoid running on a zero-sized widget
+            if paned_window.winfo_width() > 1:
+                paned_window.sashpos(0, paned_window.winfo_width() // 2)
+                self._sash_set = True
 
     def _create_leaf_controls(self, parent, leaf_name):
         frame = ttk.LabelFrame(parent, text=f" {leaf_name} Controls ", padding="10")
