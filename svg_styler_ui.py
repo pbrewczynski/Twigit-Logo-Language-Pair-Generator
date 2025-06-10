@@ -14,7 +14,6 @@ import io
 try:
     import cairosvg
 except ImportError:
-    # Use a dummy Tk root to show the message box before exiting
     root = tk.Tk()
     root.withdraw()
     messagebox.showerror("Dependency Error", "CairoSVG is not installed.\nThis application cannot run without it.\n\nPlease install with: pip install cairosvg")
@@ -25,7 +24,7 @@ try:
 except ImportError:
     root = tk.Tk()
     root.withdraw()
-    messagebox.showerror("File Not Found", "Could not import from country_data.py.\nPlease ensure the file is in the same directory as this script.")
+    messagebox.showerror("File Not Found", "Could not import from country_data.py.\nPlease ensure it is in the same directory as this script.")
     exit()
 
 SVG_NAMESPACE = "http://www.w3.org/2000/svg"
@@ -35,7 +34,7 @@ ET.register_namespace('xlink', XLINK_NAMESPACE)
 CODE_TO_COUNTRY_NAME = {code: name for name, code in COUNTRY_CODES.items()}
 COUNTRY_NAMES_SORTED = sorted(list(COUNTRY_CODES.keys()))
 
-# --- SVG Processing Logic (Unchanged and Complete) ---
+# --- SVG Processing Logic ---
 def get_simple_path_bbox(d_attr):
     if not d_attr: return None
     points_x, points_y = [], []
@@ -76,23 +75,33 @@ def create_gradient_definition(defs_element, colors, gradient_id_base, gradient_
     coords = {"x1": "0%", "y1": "0%", "x2": ("0%" if gradient_direction == "vertical" else "100%"), "y2": ("100%" if gradient_direction == "vertical" else "0%")}
     gradient_element = ET.SubElement(defs_element, f"{{{SVG_NAMESPACE}}}linearGradient", {"id": gradient_id, **coords})
     num_colors = len(colors)
+    if num_colors == 0: return None
     if num_colors == 1:
-        ET.SubElement(gradient_element, f"{{{SVG_NAMESPACE}}}stop", {"offset": "0%", "style": f"stop-color:{colors[0]};stop-opacity:1"})
-    elif num_colors == 2:
-        color1, color2 = colors[0], colors[1]
-        midpoint = 50
-        half_width = max(0, min(50, transition_width_percent / 2))
-        offset1 = f"{midpoint - half_width:.2f}%"
-        offset2 = f"{midpoint + half_width:.2f}%"
-        ET.SubElement(gradient_element, f"{{{SVG_NAMESPACE}}}stop", {"offset": offset1, "style": f"stop-color:{color1};stop-opacity:1"})
-        ET.SubElement(gradient_element, f"{{{SVG_NAMESPACE}}}stop", {"offset": offset2, "style": f"stop-color:{color2};stop-opacity:1"})
-    else:
-        for i, color in enumerate(colors):
-            offset = (i / (num_colors - 1)) * 100
-            ET.SubElement(gradient_element, f"{{{SVG_NAMESPACE}}}stop", {"offset": f"{offset:.2f}%", "style": f"stop-color:{color};stop-opacity:1"})
+        ET.SubElement(gradient_element, f"{{{SVG_NAMESPACE}}}stop", {"offset": "0%", "style": f"stop-color:{colors[0]}"})
+        return gradient_id
+    softness = transition_width_percent / 100.0
+    band_width = 100.0 / num_colors
+    transition_size = band_width * softness
+    for i, color in enumerate(colors):
+        band_start = i * band_width
+        band_end = (i + 1) * band_width
+        plateau_start = band_start + (transition_size / 2.0)
+        plateau_end = band_end - (transition_size / 2.0)
+        if i == 0: plateau_start = 0
+        if i == num_colors - 1: plateau_end = 100
+        if plateau_start >= plateau_end:
+            center_pos = band_start + (band_width / 2.0)
+            ET.SubElement(gradient_element, f"{{{SVG_NAMESPACE}}}stop", {"offset": f"{center_pos:.2f}%", "style": f"stop-color:{color}"})
+        else:
+            ET.SubElement(gradient_element, f"{{{SVG_NAMESPACE}}}stop", {"offset": f"{plateau_start:.2f}%", "style": f"stop-color:{color}"})
+            ET.SubElement(gradient_element, f"{{{SVG_NAMESPACE}}}stop", {"offset": f"{plateau_end:.2f}%", "style": f"stop-color:{color}"})
     return gradient_id
 
-def create_flag_pattern_definition(defs_element, country_code, pattern_id_base):
+# --- *** MODIFIED FUNCTION *** ---
+def create_flag_pattern_definition(defs_element, country_code, pattern_id_base, zoom, pan_x, pan_y):
+    """
+    Creates a flag pattern, applying zoom and pan transformations.
+    """
     pattern_id = f"{pattern_id_base}-flag-pattern-{uuid.uuid4().hex[:6]}"
     flag_svg_path = os.path.join("flags", f"{country_code}.svg")
     if not os.path.exists(flag_svg_path): return None
@@ -100,18 +109,39 @@ def create_flag_pattern_definition(defs_element, country_code, pattern_id_base):
         flag_tree = ET.parse(flag_svg_path)
         flag_root = flag_tree.getroot()
     except Exception: return None
+    
     flag_viewbox = flag_root.get("viewBox", "0 0 100 100")
     vb_parts = flag_viewbox.split()
-    p_width = flag_root.get("width", vb_parts[2] if len(vb_parts) == 4 else "100")
-    p_height = flag_root.get("height", vb_parts[3] if len(vb_parts) == 4 else "100")
-    pattern_attribs = {"id": pattern_id, "patternUnits": "userSpaceOnUse", "width": p_width, "height": p_height, "viewBox": flag_viewbox, "preserveAspectRatio": "xMidYMid slice"}
+    original_width = float(flag_root.get("width", vb_parts[2] if len(vb_parts) == 4 else "100"))
+    original_height = float(flag_root.get("height", vb_parts[3] if len(vb_parts) == 4 else "100"))
+
+    # Apply zoom to the pattern's dimensions. Smaller dimension = zoomed in.
+    new_width = original_width * (100.0 / zoom)
+    new_height = original_height * (100.0 / zoom)
+    
+    # Apply pan, calculated as a percentage of the original, un-zoomed dimensions for consistency.
+    x_offset = original_width * (pan_x / 100.0)
+    y_offset = original_height * (pan_y / 100.0)
+
+    pattern_attribs = {
+        "id": pattern_id, 
+        "patternUnits": "userSpaceOnUse", 
+        "width": str(new_width), 
+        "height": str(new_height),
+        "x": str(x_offset),
+        "y": str(y_offset),
+        "viewBox": flag_viewbox, 
+        "preserveAspectRatio": "xMidYMid slice"
+    }
     pattern_element = ET.SubElement(defs_element, f"{{{SVG_NAMESPACE}}}pattern", pattern_attribs)
+    
     skip_tags = ["defs", "style", "metadata", "title", "desc", "sodipodi:namedview", "inkscape:perspective"]
     for child in flag_root:
         tag_name = child.tag.split('}')[-1] if '}' in child.tag else child.tag
         if tag_name not in skip_tags: pattern_element.append(child)
     return pattern_id
 
+# --- *** MODIFIED FUNCTION *** ---
 def modify_leaf_fill(root_element, defs_element, layer_group, leaf_id_method, leaf_params):
     country_code = leaf_params['country_code']
     country_name = CODE_TO_COUNTRY_NAME.get(country_code)
@@ -133,10 +163,18 @@ def modify_leaf_fill(root_element, defs_element, layer_group, leaf_id_method, le
         return False, "Internal Error: Path index not found."
     leaf_d_attribute = target_path_element.get("d")
     if not leaf_d_attribute: return False, "Target path has no 'd' attribute."
+    
     pattern_id_base = f"{country_code}-{leaf_params['leaf_name'].lower()}-{uuid.uuid4().hex[:4]}"
     fill_applied_successfully = False
+    
     if leaf_params['fill_type'] == "flag-svg":
-        pattern_id = create_flag_pattern_definition(defs_element, country_code, pattern_id_base)
+        # Pass new zoom/pan parameters to the pattern creation function
+        pattern_id = create_flag_pattern_definition(
+            defs_element, country_code, pattern_id_base, 
+            zoom=leaf_params.get('zoom', 100.0),
+            pan_x=leaf_params.get('pan_x', 0.0),
+            pan_y=leaf_params.get('pan_y', 0.0)
+        )
         if pattern_id:
             clip_path_id = f"clip-{pattern_id_base}"
             clip_path_el = ET.SubElement(defs_element, f"{{{SVG_NAMESPACE}}}clipPath", {"id": clip_path_id})
@@ -148,12 +186,14 @@ def modify_leaf_fill(root_element, defs_element, layer_group, leaf_id_method, le
             layer_group.remove(target_path_element)
             layer_group.insert(target_path_index, clipped_group)
             fill_applied_successfully = True
+            
     if leaf_params['fill_type'] == "gradient" or not fill_applied_successfully:
         if target_path_element in list(layer_group):
             colors = COUNTRY_COLORS[country_name]
             gradient_id = create_gradient_definition(defs_element, colors, pattern_id_base, leaf_params['direction'], leaf_params.get('transition', 10))
             target_path_element.set("fill", f"url(#{gradient_id})")
             if 'class' in target_path_element.attrib: del target_path_element.attrib['class']
+            
     return True, f"Processed {leaf_params['leaf_name']}."
 
 def process_svg(top_params=None, right_params=None):
@@ -171,50 +211,42 @@ def process_svg(top_params=None, right_params=None):
         root = ET.fromstring(input_svg_content)
     except ET.ParseError as e:
         return f"Fatal: Could not parse SVG: {e}", None
-
     for path in root.findall(f".//{{{SVG_NAMESPACE}}}path[@processed]"):
         del path.attrib['processed']
     for el in root.findall(f".//{{{SVG_NAMESPACE}}}g[@clip-path]"):
         el.getparent().remove(el)
-
     defs_element = root.find(f".//{{{SVG_NAMESPACE}}}defs")
     if defs_element is None: defs_element = ET.SubElement(root, f"{{{SVG_NAMESPACE}}}defs")
-    # Clear old generated defs for a clean slate on each preview update
     for item in list(defs_element):
         item_id = item.get('id', '')
         if 'gradient' in item_id or 'pattern' in item_id or 'clip' in item_id:
             defs_element.remove(item)
-
     layer_group = root.find(f".//{{{SVG_NAMESPACE}}}g[@id='Layer_1-2']")
     if layer_group is None:
         return "Fatal: Main layer group 'Layer_1-2' not found.", None
-
     if top_params:
         top_leaf_id_method = {'type': 'specific_d', 'd_start': "m284.59,97c"}
         modify_leaf_fill(root, defs_element, layer_group, top_leaf_id_method, top_params)
     if right_params:
         right_leaf_id_method = {'type': 'specific_d', 'd_start': "m465.83,320.23c"}
         modify_leaf_fill(root, defs_element, layer_group, right_leaf_id_method, right_params)
-
     return "Preview updated.", ET.tostring(root, encoding="unicode", method="xml")
 
-# --- UI Application Class with Live Preview ---
+# --- UI Application Class ---
 class SvgStylerApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("SVG Leaf Styler")
-        self.geometry("800x600")
-        self.minsize(650, 500)
+        self.geometry("800x650") # Increased height for new controls
+        self.minsize(650, 550)
         self.last_svg_content = None
 
         main_paned_window = ttk.PanedWindow(self, orient='horizontal')
         main_paned_window.pack(fill='both', expand=True, padx=10, pady=10)
 
-        # --- Left Panel: Controls ---
         controls_frame = ttk.Frame(main_paned_window, width=350)
         main_paned_window.add(controls_frame, weight=1)
 
-        # --- Right Panel: Preview ---
         preview_frame = ttk.LabelFrame(main_paned_window, text=" Live Preview ", padding="10")
         main_paned_window.add(preview_frame, weight=2)
         self.preview_label = ttk.Label(preview_frame, text="Enable a leaf to see a preview.")
@@ -225,13 +257,12 @@ class SvgStylerApp(tk.Tk):
         ttk.Separator(controls_frame, orient='horizontal').pack(fill='x', pady=10, padx=5)
         self.controls['right'] = self._create_leaf_controls(controls_frame, "Right Leaf")
 
-        # --- Action Buttons ---
         action_frame = ttk.Frame(controls_frame)
         action_frame.pack(side='bottom', fill='x', pady=(20, 0), padx=5)
         self.save_button = ttk.Button(action_frame, text="Save As...", command=self.save_files, state='disabled')
         self.save_button.pack(side="right")
 
-        self.update_preview() # Initial render
+        self.update_preview()
 
     def _create_leaf_controls(self, parent, leaf_name):
         frame = ttk.LabelFrame(parent, text=f" {leaf_name} Controls ", padding="10")
@@ -242,121 +273,130 @@ class SvgStylerApp(tk.Tk):
             "country_name": tk.StringVar(),
             "fill_type": tk.StringVar(value="gradient"),
             "direction": tk.StringVar(value="horizontal"),
-            "transition": tk.DoubleVar(value=10.0)
+            "transition": tk.DoubleVar(value=20.0),
+            "zoom": tk.DoubleVar(value=100.0),
+            "pan_x": tk.DoubleVar(value=0.0),
+            "pan_y": tk.DoubleVar(value=0.0)
         }
         
-        # Add trace to all variables to trigger preview update
         for var in vars.values():
             var.trace_add("write", lambda *args: self.update_preview())
 
-        enabled_check = ttk.Checkbutton(frame, text="Enable this Leaf", variable=vars['enabled'], command=lambda: self.toggle_controls_state(frame, vars['enabled'].get()))
-        enabled_check.grid(row=0, column=0, columnspan=3, sticky='w', pady=(0,10))
+        # --- Main Controls ---
+        main_controls_frame = ttk.Frame(frame)
+        main_controls_frame.pack(fill='x', expand=True)
+        enabled_check = ttk.Checkbutton(main_controls_frame, text="Enable this Leaf", variable=vars['enabled'], command=lambda: self.toggle_controls_state(frame, vars['enabled'].get()))
+        enabled_check.grid(row=0, column=0, columnspan=2, sticky='w', pady=(0,10))
+        ttk.Label(main_controls_frame, text="Country:").grid(row=1, column=0, sticky='w', padx=5, pady=2)
+        country_combo = ttk.Combobox(main_controls_frame, textvariable=vars['country_name'], values=COUNTRY_NAMES_SORTED, state="readonly")
+        country_combo.grid(row=1, column=1, sticky='ew', padx=5, pady=2)
+        ttk.Label(main_controls_frame, text="Fill Type:").grid(row=2, column=0, sticky='w', padx=5, pady=2)
+        fill_combo = ttk.Combobox(main_controls_frame, textvariable=vars['fill_type'], values=["gradient", "flag-svg"], state="readonly")
+        fill_combo.grid(row=2, column=1, sticky='ew', padx=5, pady=2)
+        main_controls_frame.columnconfigure(1, weight=1)
         
-        ttk.Label(frame, text="Country:").grid(row=1, column=0, sticky='w', padx=5, pady=2)
-        country_combo = ttk.Combobox(frame, textvariable=vars['country_name'], values=COUNTRY_NAMES_SORTED, state="readonly")
-        country_combo.grid(row=1, column=1, columnspan=2, sticky='ew', padx=5, pady=2)
+        # --- Gradient-Specific Controls ---
+        gradient_controls_frame = ttk.Frame(frame)
+        gradient_controls_frame.pack(fill='x', expand=True, pady=(5,0))
+        ttk.Label(gradient_controls_frame, text="Direction:").grid(row=0, column=0, sticky='w', padx=5)
+        direction_combo = ttk.Combobox(gradient_controls_frame, textvariable=vars['direction'], values=["horizontal", "vertical"], state="readonly")
+        direction_combo.grid(row=0, column=1, sticky='ew', padx=5, pady=2)
+        ttk.Label(gradient_controls_frame, text="Transition:").grid(row=1, column=0, sticky='w', padx=5)
+        transition_slider = ttk.Scale(gradient_controls_frame, from_=1, to=99, orient='horizontal', variable=vars['transition'])
+        transition_slider.grid(row=1, column=1, sticky='ew', padx=5, pady=5)
+        transition_label = ttk.Label(gradient_controls_frame, text="20%", width=5)
+        transition_label.grid(row=1, column=2, sticky='w', padx=5)
+        gradient_controls_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(frame, text="Fill Type:").grid(row=2, column=0, sticky='w', padx=5, pady=2)
-        fill_combo = ttk.Combobox(frame, textvariable=vars['fill_type'], values=["gradient", "flag-svg"], state="readonly")
-        fill_combo.grid(row=2, column=1, columnspan=2, sticky='ew', padx=5, pady=2)
+        # --- Flag-Specific Controls ---
+        flag_controls_frame = ttk.Frame(frame)
+        flag_controls_frame.pack(fill='x', expand=True, pady=(5,0))
+        ttk.Label(flag_controls_frame, text="Zoom:").grid(row=0, column=0, sticky='w', padx=5)
+        zoom_slider = ttk.Scale(flag_controls_frame, from_=25, to=400, orient='horizontal', variable=vars['zoom'])
+        zoom_slider.grid(row=0, column=1, sticky='ew', padx=5, pady=2)
+        zoom_label = ttk.Label(flag_controls_frame, text="100%", width=5)
+        zoom_label.grid(row=0, column=2, sticky='w', padx=5)
+        ttk.Label(flag_controls_frame, text="Pan X:").grid(row=1, column=0, sticky='w', padx=5)
+        pan_x_slider = ttk.Scale(flag_controls_frame, from_=-100, to=100, orient='horizontal', variable=vars['pan_x'])
+        pan_x_slider.grid(row=1, column=1, sticky='ew', padx=5, pady=2)
+        pan_x_label = ttk.Label(flag_controls_frame, text="0%", width=5)
+        pan_x_label.grid(row=1, column=2, sticky='w', padx=5)
+        ttk.Label(flag_controls_frame, text="Pan Y:").grid(row=2, column=0, sticky='w', padx=5)
+        pan_y_slider = ttk.Scale(flag_controls_frame, from_=-100, to=100, orient='horizontal', variable=vars['pan_y'])
+        pan_y_slider.grid(row=2, column=1, sticky='ew', padx=5, pady=2)
+        pan_y_label = ttk.Label(flag_controls_frame, text="0%", width=5)
+        pan_y_label.grid(row=2, column=2, sticky='w', padx=5)
+        flag_controls_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(frame, text="Direction:").grid(row=3, column=0, sticky='w', padx=5, pady=2)
-        direction_combo = ttk.Combobox(frame, textvariable=vars['direction'], values=["horizontal", "vertical"], state="readonly")
-        direction_combo.grid(row=3, column=1, columnspan=2, sticky='ew', padx=5, pady=2)
-
-        ttk.Label(frame, text="Transition:").grid(row=4, column=0, sticky='w', padx=5, pady=5)
-        transition_slider = ttk.Scale(frame, from_=1, to=99, orient='horizontal', variable=vars['transition'])
-        transition_slider.grid(row=4, column=1, sticky='ew', padx=5, pady=5)
-        transition_label = ttk.Label(frame, text="10%", width=5)
-        transition_label.grid(row=4, column=2, sticky='w', padx=5)
-
-        # --- Callbacks for UI state changes ---
+        # --- Callbacks for UI State ---
         def on_fill_type_change(*args):
             is_gradient = vars['fill_type'].get() == "gradient"
-            direction_combo.config(state="readonly" if is_gradient else "disabled")
-            transition_slider.config(state="normal" if is_gradient else "disabled")
+            if is_gradient:
+                gradient_controls_frame.pack(fill='x', expand=True, pady=(5,0))
+                flag_controls_frame.pack_forget()
+            else: # is flag-svg
+                gradient_controls_frame.pack_forget()
+                flag_controls_frame.pack(fill='x', expand=True, pady=(5,0))
 
-        def on_slider_change(*args):
-            transition_label.config(text=f"{vars['transition'].get():.0f}%")
-
+        def on_slider_change(var, label, suffix): label.config(text=f"{var.get():.0f}{suffix}")
+        
         vars['fill_type'].trace_add("write", on_fill_type_change)
-        vars['transition'].trace_add("write", on_slider_change)
-
-        frame.columnconfigure(1, weight=1)
-        self.toggle_controls_state(frame, False) # Start disabled
+        vars['transition'].trace_add("write", lambda *args: on_slider_change(vars['transition'], transition_label, "%"))
+        vars['zoom'].trace_add("write", lambda *args: on_slider_change(vars['zoom'], zoom_label, "%"))
+        vars['pan_x'].trace_add("write", lambda *args: on_slider_change(vars['pan_x'], pan_x_label, "%"))
+        vars['pan_y'].trace_add("write", lambda *args: on_slider_change(vars['pan_y'], pan_y_label, "%"))
+        
+        self.toggle_controls_state(frame, False)
+        on_fill_type_change() # Set initial visibility
         return vars
 
     def toggle_controls_state(self, frame, enabled):
         state = 'normal' if enabled else 'disabled'
         for child in frame.winfo_children():
+            # Don't disable the main checkbox itself
             if not isinstance(child, ttk.Checkbutton):
-                child.configure(state=state)
+                # Recurse into child frames
+                for widget in child.winfo_children():
+                    widget.configure(state=state)
         if enabled:
             frame_name = frame.cget("text").strip().split(" ")[0].lower()
             self.controls[frame_name]['fill_type'].trace_fire("write",('','',''))
-
+            
     def update_preview(self):
-        top_params, right_params = None, None
+        params_list = []
+        for leaf in ['top', 'right']:
+            if self.controls[leaf]['enabled'].get() and self.controls[leaf]['country_name'].get():
+                params = { 'country_code': COUNTRY_CODES[self.controls[leaf]['country_name'].get()], 'fill_type': self.controls[leaf]['fill_type'].get(), 'direction': self.controls[leaf]['direction'].get(), 'transition': self.controls[leaf]['transition'].get(), 'zoom': self.controls[leaf]['zoom'].get(), 'pan_x': self.controls[leaf]['pan_x'].get(), 'pan_y': self.controls[leaf]['pan_y'].get(), 'leaf_name': leaf.capitalize() }
+                params_list.append(params)
         
-        if self.controls['top']['enabled'].get() and self.controls['top']['country_name'].get():
-            top_params = {
-                'country_code': COUNTRY_CODES[self.controls['top']['country_name'].get()],
-                'fill_type': self.controls['top']['fill_type'].get(),
-                'direction': self.controls['top']['direction'].get(),
-                'transition': self.controls['top']['transition'].get(),
-                'leaf_name': 'Top'
-            }
-        if self.controls['right']['enabled'].get() and self.controls['right']['country_name'].get():
-            right_params = {
-                'country_code': COUNTRY_CODES[self.controls['right']['country_name'].get()],
-                'fill_type': self.controls['right']['fill_type'].get(),
-                'direction': self.controls['right']['direction'].get(),
-                'transition': self.controls['right']['transition'].get(),
-                'leaf_name': 'Right'
-            }
-
+        top_params = next((p for p in params_list if p['leaf_name'] == 'Top'), None)
+        right_params = next((p for p in params_list if p['leaf_name'] == 'Right'), None)
+        
         status, svg_content = process_svg(top_params, right_params)
         
         if not svg_content:
-            messagebox.showerror("SVG Generation Error", status)
+            self.preview_label.config(image=None, text=f"Error generating SVG:\n{status}")
             return
 
         self.last_svg_content = svg_content
-        
         try:
-            # Render to a reasonably sized PNG for the preview
             png_data = cairosvg.svg2png(bytestring=svg_content.encode('utf-8'), output_height=400)
             img = Image.open(io.BytesIO(png_data))
             self.photo_image = ImageTk.PhotoImage(img)
             self.preview_label.config(image=self.photo_image, text="")
-            self.save_button.config(state='normal') # Enable saving
+            self.save_button.config(state='normal')
         except Exception as e:
             self.preview_label.config(image=None, text=f"Error rendering preview:\n{e}")
             self.save_button.config(state='disabled')
 
     def save_files(self):
-        if not self.last_svg_content:
-            messagebox.showerror("Error", "No SVG content to save. Please make a selection first.")
-            return
-
-        filepath = filedialog.asksaveasfilename(
-            defaultextension=".svg",
-            filetypes=[("SVG Vector Image", "*.svg"), ("PNG Image", "*.png"), ("All Files", "*.*")],
-            title="Save Logo As..."
-        )
-        if not filepath:
-            return
-
-        base_path, extension = os.path.splitext(filepath)
-        
+        if not self.last_svg_content: return
+        filepath = filedialog.asksaveasfilename( defaultextension=".svg", filetypes=[("SVG Vector Image", "*.svg"), ("PNG Image", "*.png"), ("All Files", "*.*")], title="Save Logo As..." )
+        if not filepath: return
+        base_path, _ = os.path.splitext(filepath)
         try:
-            # Save the SVG file
-            with open(f"{base_path}.svg", "w", encoding="utf-8") as f:
-                f.write(self.last_svg_content)
-            
-            # Save the PNG file
+            with open(f"{base_path}.svg", "w", encoding="utf-8") as f: f.write(self.last_svg_content)
             cairosvg.svg2png(bytestring=self.last_svg_content.encode('utf-8'), write_to=f"{base_path}.png", output_width=1200)
-
             messagebox.showinfo("Success", f"Successfully saved:\n{base_path}.svg\n{base_path}.png")
         except Exception as e:
             messagebox.showerror("Save Error", f"An error occurred while saving files:\n{e}")
