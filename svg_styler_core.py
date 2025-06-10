@@ -5,6 +5,7 @@ import re
 import os
 import uuid
 import io
+import argparse  # <-- ADD THIS IMPORT
 
 # --- Dependency Check and Imports ---
 try:
@@ -195,6 +196,55 @@ def process_svg(top_params=None, right_params=None):
         right_leaf_id_method = {'type': 'specific_d', 'd_start': "m465.83,320.23c"}
         modify_leaf_fill(root, defs_element, layer_group, right_leaf_id_method, right_params)
     return "SVG content generated.", ET.tostring(root, encoding="unicode", method="xml")
+
+
+# --- NEW: Centralized Argument Parser ---
+def create_argument_parser(is_cli=False):
+    """
+    Creates and configures an ArgumentParser.
+    :param is_cli: If True, adds CLI-specific arguments like --output.
+    :return: An instance of argparse.ArgumentParser.
+    """
+    parser = argparse.ArgumentParser(
+        description="Styles an SVG logo with country flags or gradients.",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+
+    if is_cli:
+        parser.add_argument(
+            '-o', '--output',
+            required=True,
+            help="Output file path (without extension). e.g., 'my_logo'. Will generate 'my_logo.svg' and 'my_logo.png'."
+        )
+        parser.add_argument(
+            '--png-width',
+            type=int,
+            default=1200,
+            help="Width of the output PNG file in pixels. Default is 1200."
+        )
+
+    # --- Top Leaf Arguments ---
+    top_group = parser.add_argument_group('Top Leaf Options')
+    top_group.add_argument('--top-country', type=str, help='Name of the country for the top leaf. (e.g., "United States")')
+    top_group.add_argument('--top-fill-type', choices=['gradient', 'flag-svg'], default='gradient', help='Fill type for the top leaf.')
+    top_group.add_argument('--top-direction', choices=['horizontal', 'vertical'], default='horizontal', help='Direction for gradient fill.')
+    top_group.add_argument('--top-transition', type=float, default=20.0, help='Transition softness for gradient (1-99).')
+    top_group.add_argument('--top-zoom', type=float, default=100.0, help='Zoom level for flag fill (25-400).')
+    top_group.add_argument('--top-pan-x', type=float, default=0.0, help='Horizontal pan for flag fill (-100 to 100).')
+    top_group.add_argument('--top-pan-y', type=float, default=0.0, help='Vertical pan for flag fill (-100 to 100).')
+
+    # --- Right Leaf Arguments ---
+    right_group = parser.add_argument_group('Right Leaf Options')
+    right_group.add_argument('--right-country', type=str, help='Name of the country for the right leaf. (e.g., "Germany")')
+    right_group.add_argument('--right-fill-type', choices=['gradient', 'flag-svg'], default='gradient', help='Fill type for the right leaf.')
+    right_group.add_argument('--right-direction', choices=['horizontal', 'vertical'], default='horizontal', help='Direction for gradient fill.')
+    right_group.add_argument('--right-transition', type=float, default=20.0, help='Transition softness for gradient (1-99).')
+    right_group.add_argument('--right-zoom', type=float, default=100.0, help='Zoom level for flag fill (25-400).')
+    right_group.add_argument('--right-pan-x', type=float, default=0.0, help='Horizontal pan for flag fill (-100 to 100).')
+    right_group.add_argument('--right-pan-y', type=float, default=0.0, help='Vertical pan for flag fill (-100 to 100).')
+
+    return parser
+
 
 def generate_and_save_logo(output_path, top_params=None, right_params=None, png_width=1200):
     """Generates the SVG, saves it, and saves a PNG version."""

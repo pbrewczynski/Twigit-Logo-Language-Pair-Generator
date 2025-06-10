@@ -11,7 +11,10 @@ import os
 
 # --- Import core logic and data ---
 try:
-    from svg_styler_core import process_svg, COUNTRY_CODES, COUNTRY_NAMES_SORTED, cairosvg
+    from svg_styler_core import (
+        process_svg, COUNTRY_CODES, COUNTRY_NAMES_SORTED,
+        cairosvg, create_argument_parser
+    )
 except ImportError:
     # A simple tk root to show the error if core module fails
     root = tk.Tk()
@@ -21,7 +24,11 @@ except ImportError:
 
 # --- UI Application Class ---
 class SvgStylerApp(tk.Tk):
-    def __init__(self):
+    def __init__(self, startup_args=None):
+        """
+        Initializes the application.
+        :param startup_args: An object with parsed command-line arguments to pre-configure the UI.
+        """
         super().__init__()
         self.title("SVG Leaf Styler")
         self.geometry("800x650")
@@ -34,10 +41,7 @@ class SvgStylerApp(tk.Tk):
         main_paned_window = ttk.PanedWindow(self, orient='horizontal')
         main_paned_window.pack(fill='both', expand=True, padx=10, pady=10)
 
-        # --- THE FIX: Bind to the <Configure> event ---
-        # This event fires when the widget is first sized. We use it to
-        # set the sash position to 50% of the width. The self._sash_set flag
-        # ensures this only happens ONCE, allowing the user to resize freely after.
+        # Bind to the <Configure> event to set the initial sash position correctly.
         main_paned_window.bind("<Configure>", self.set_initial_sash_position)
 
         controls_frame = ttk.Frame(main_paned_window)
@@ -60,6 +64,10 @@ class SvgStylerApp(tk.Tk):
 
         self.update_preview()
 
+        # Apply startup arguments if they were provided
+        if startup_args:
+            self.apply_startup_args(startup_args)
+
     def set_initial_sash_position(self, event):
         """Callback for the <Configure> event to set the sash to 50% width."""
         if not self._sash_set:
@@ -68,6 +76,33 @@ class SvgStylerApp(tk.Tk):
             if paned_window.winfo_width() > 1:
                 paned_window.sashpos(0, paned_window.winfo_width() // 2)
                 self._sash_set = True
+    
+    def apply_startup_args(self, args):
+        """Applies parsed command-line arguments to the UI controls."""
+        leaf_map = {
+            'top': 'Top Leaf',
+            'right': 'Right Leaf'
+        }
+        for prefix, leaf_name in leaf_map.items():
+            country_name = getattr(args, f'{prefix}_country')
+            if country_name:
+                if country_name not in COUNTRY_CODES:
+                    print(f"Warning: Startup country '{country_name}' is not valid. Ignoring.")
+                    continue
+                
+                controls = self.controls[leaf_name]
+                
+                # Enable the leaf and set all values from args.
+                # Setting the tk.Variables will trigger their traces and update the UI.
+                controls['enabled'].set(True)
+                controls['country_name'].set(country_name)
+                controls['fill_type'].set(getattr(args, f'{prefix}_fill_type'))
+                controls['direction'].set(getattr(args, f'{prefix}_direction'))
+                controls['transition'].set(getattr(args, f'{prefix}_transition'))
+                controls['zoom'].set(getattr(args, f'{prefix}_zoom'))
+                controls['pan_x'].set(getattr(args, f'{prefix}_pan_x'))
+                controls['pan_y'].set(getattr(args, f'{prefix}_pan_y'))
+
 
     def _create_leaf_controls(self, parent, leaf_name):
         frame = ttk.LabelFrame(parent, text=f" {leaf_name} Controls ", padding="10")
@@ -214,5 +249,10 @@ class SvgStylerApp(tk.Tk):
             messagebox.showerror("Save Error", f"An error occurred while saving files:\n{e}")
 
 if __name__ == "__main__":
-    app = SvgStylerApp()
+    # Get the parser from the core module, configured for UI usage (no --output arg).
+    parser = create_argument_parser(is_cli=False)
+    startup_args = parser.parse_args()
+    
+    # Pass the parsed arguments to the application.
+    app = SvgStylerApp(startup_args=startup_args)
     app.mainloop()
