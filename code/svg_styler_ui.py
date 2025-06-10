@@ -292,15 +292,20 @@ class SvgStylerApp(tk.Tk):
 
     def save_files(self):
         if not self.last_svg_content: return
-        filepath = filedialog.asksaveasfilename( defaultextension=".svg", filetypes=[("SVG Vector Image", "*.svg"), ("PNG Image", "*.png"), ("All Files", "*.*")], title="Save Logo As..." )
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".svg", 
+            filetypes=[("SVG Vector Image", "*.svg"), ("PNG Image", "*.png"), ("PDF Document", "*.pdf"), ("All Files", "*.*")], 
+            title="Save Logo As..."
+        )
         if not filepath: return
         base_path, _ = os.path.splitext(filepath)
         try:
             with open(f"{base_path}.svg", "w", encoding="utf-8") as f: f.write(self.last_svg_content)
             if not cairosvg:
-                raise RuntimeError("CairoSVG is not installed, cannot save PNG.")
+                raise RuntimeError("CairoSVG is not installed, cannot save PNG or PDF.")
             cairosvg.svg2png(bytestring=self.last_svg_content.encode('utf-8'), write_to=f"{base_path}.png", output_width=1200)
-            messagebox.showinfo("Success", f"Successfully saved:\n{base_path}.svg\n{base_path}.png")
+            cairosvg.svg2pdf(bytestring=self.last_svg_content.encode('utf-8'), write_to=f"{base_path}.pdf")
+            messagebox.showinfo("Success", f"Successfully saved:\n{base_path}.svg\n{base_path}.png\n{base_path}.pdf")
         except Exception as e:
             messagebox.showerror("Save Error", f"An error occurred while saving files:\n{e}")
 

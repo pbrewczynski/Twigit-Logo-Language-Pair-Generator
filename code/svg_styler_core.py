@@ -6,6 +6,7 @@ import os
 import uuid
 import io
 import argparse
+import base64  # <-- Added import
 
 # --- Dependency Check and Imports ---
 try:
@@ -30,7 +31,7 @@ ET.register_namespace('xlink', XLINK_NAMESPACE)
 CODE_TO_COUNTRY_NAME = {code: name for name, code in COUNTRY_CODES.items()}
 COUNTRY_NAMES_SORTED = sorted(list(COUNTRY_CODES.keys()))
 
-# --- SVG Processing Logic (Unchanged from original script) ---
+# --- SVG Processing Logic ---
 def get_simple_path_bbox(d_attr):
     if not d_attr: return None
     points_x, points_y = [], []
@@ -93,30 +94,6 @@ def create_gradient_definition(defs_element, colors, gradient_id_base, gradient_
             ET.SubElement(gradient_element, f"{{{SVG_NAMESPACE}}}stop", {"offset": f"{plateau_end:.2f}%", "style": f"stop-color:{color}"})
     return gradient_id
 
-def create_flag_pattern_definition(defs_element, country_code, pattern_id_base, zoom, pan_x, pan_y):
-    pattern_id = f"{pattern_id_base}-flag-pattern-{uuid.uuid4().hex[:6]}"
-    flag_svg_path = os.path.join("flags", f"{country_code}.svg")
-    if not os.path.exists(flag_svg_path): return None
-    try:
-        flag_tree = ET.parse(flag_svg_path)
-        flag_root = flag_tree.getroot()
-    except Exception: return None
-    flag_viewbox = flag_root.get("viewBox", "0 0 100 100")
-    vb_parts = flag_viewbox.split()
-    original_width = float(flag_root.get("width", vb_parts[2] if len(vb_parts) == 4 else "100"))
-    original_height = float(flag_root.get("height", vb_parts[3] if len(vb_parts) == 4 else "100"))
-    new_width = original_width * (100.0 / zoom)
-    new_height = original_height * (100.0 / zoom)
-    x_offset = original_width * (pan_x / 100.0)
-    y_offset = original_height * (pan_y / 100.0)
-    pattern_attribs = { "id": pattern_id, "patternUnits": "userSpaceOnUse", "width": str(new_width), "height": str(new_height), "x": str(x_offset), "y": str(y_offset), "viewBox": flag_viewbox, "preserveAspectRatio": "xMidYMid slice" }
-    pattern_element = ET.SubElement(defs_element, f"{{{SVG_NAMESPACE}}}pattern", pattern_attribs)
-    skip_tags = ["defs", "style", "metadata", "title", "desc", "sodipodi:namedview", "inkscape:perspective"]
-    for child in flag_root:
-        tag_name = child.tag.split('}')[-1] if '}' in child.tag else child.tag
-        if tag_name not in skip_tags: pattern_element.append(child)
-    return pattern_id
-
 def modify_leaf_fill(root_element, defs_element, layer_group, leaf_id_method, leaf_params):
     country_code = leaf_params['country_code']
     country_name = CODE_TO_COUNTRY_NAME.get(country_code)
@@ -138,39 +115,76 @@ def modify_leaf_fill(root_element, defs_element, layer_group, leaf_id_method, le
         return False, "Internal Error: Path index not found."
     leaf_d_attribute = target_path_element.get("d")
     if not leaf_d_attribute: return False, "Target path has no 'd' attribute."
-    pattern_id_base = f"{country_code}-{leaf_params['leaf_name'].lower()}-{uuid.uuid4().hex[:4]}"
+    
+    unique_id_base = f"{country_code}-{leaf_params['leaf_name'].lower()}-{uuid.uuid4().hex[:4]}"
     fill_applied_successfully = False
+
     if leaf_params['fill_type'] == "flag-svg":
-        pattern_id = create_flag_pattern_definition( defs_element, country_code, pattern_id_base, zoom=leaf_params.get('zoom', 100.0), pan_x=leaf_params.get('pan_x', 0.0), pan_y=leaf_params.get('pan_y', 0.0) )
-        if pattern_id:
-            clip_path_id = f"clip-{pattern_id_base}"
-            clip_path_el = ET.SubElement(defs_element, f"{{{SVG_NAMESPACE}}}clipPath", {"id": clip_path_id})
-            ET.SubElement(clip_path_el, f"{{{SVG_NAMESPACE}}}path", {"d": leaf_d_attribute})
-            bbox = get_simple_path_bbox(leaf_d_attribute)
-            if bbox:
-                # Add a buffer to the bounding box to prevent pattern truncation
-                # on shapes with curves, where the simple bbox calculation can be inaccurate.
-                buffer = 5
-                bbox_attrs = {
-                    "x": str(bbox['x'] - buffer),
-                    "y": str(bbox['y'] - buffer),
-                    "width": str(bbox['width'] + (buffer * 2)),
-                    "height": str(bbox['height'] + (buffer * 2))
-                }
-            else: # Fallback if bbox calculation fails
-                bbox_attrs = {"x": "0", "y": "0", "width": "100%", "height": "100%"}
-            clipped_group = ET.Element(f"{{{SVG_NAMESPACE}}}g", {"clip-path": f"url(#{clip_path_id})"})
-            rect_attrs = {**bbox_attrs, "fill": f"url(#{pattern_id})"}
-            ET.SubElement(clipped_group, f"{{{SVG_NAMESPACE}}}rect", rect_attrs)
-            layer_group.remove(target_path_element)
-            layer_group.insert(target_path_index, clipped_group)
-            fill_applied_successfully = True
+        flag_svg_path = os.path.join("flags", f"{country_code}.svg")
+        if os.path.exists(flag_svg_path):
+            try:
+                # 1. Get flag's original dimensions for aspect ratio
+                flag_tree = ET.parse(flag_svg_path)
+                flag_root = flag_tree.getroot()
+                flag_viewbox = flag_root.get("viewBox", "0 0 100 100").split()
+                flag_w = float(flag_root.get("width", flag_viewbox[2] if len(flag_viewbox) == 4 else "100"))
+                flag_h = float(flag_root.get("height", flag_viewbox[3] if len(flag_viewbox) == 4 else "100"))
+                flag_aspect_ratio = flag_w / flag_h if flag_h > 0 else 1
+
+                # 2. Get leaf's bounding box
+                bbox = get_simple_path_bbox(leaf_d_attribute)
+                if bbox and bbox['width'] > 0 and bbox['height'] > 0:
+                    # 3. Calculate "cover" dimensions for the image
+                    bbox_w, bbox_h = bbox['width'], bbox['height']
+                    bbox_aspect_ratio = bbox_w / bbox_h
+                    
+                    img_w, img_h = (bbox_w, bbox_w / flag_aspect_ratio) if bbox_aspect_ratio > flag_aspect_ratio else (bbox_h * flag_aspect_ratio, bbox_h)
+
+                    # 4. Apply zoom
+                    zoom_factor = leaf_params.get('zoom', 100.0) / 100.0
+                    final_img_w = img_w * zoom_factor
+                    final_img_h = img_h * zoom_factor
+                    
+                    # 5. Calculate centered position and apply pan
+                    img_x = bbox['x'] + (bbox_w - final_img_w) / 2
+                    img_y = bbox['y'] + (bbox_h - final_img_h) / 2
+                    
+                    overhang_x = max(0, final_img_w - bbox_w)
+                    overhang_y = max(0, final_img_h - bbox_h)
+                    img_x -= (leaf_params.get('pan_x', 0.0) / 100.0) * (overhang_x / 2.0)
+                    img_y -= (leaf_params.get('pan_y', 0.0) / 100.0) * (overhang_y / 2.0)
+
+                    # 6. Create the clipPath
+                    clip_path_id = f"clip-{unique_id_base}"
+                    clip_path_el = ET.SubElement(defs_element, f"{{{SVG_NAMESPACE}}}clipPath", {"id": clip_path_id})
+                    ET.SubElement(clip_path_el, f"{{{SVG_NAMESPACE}}}path", {"d": leaf_d_attribute})
+
+                    # 7. Read and Base64-encode the flag SVG
+                    with open(flag_svg_path, "rb") as f:
+                        encoded_flag = base64.b64encode(f.read()).decode('ascii')
+                    data_uri = f"data:image/svg+xml;base64,{encoded_flag}"
+
+                    # 8. Create the new group with the clipped image
+                    clipped_group = ET.Element(f"{{{SVG_NAMESPACE}}}g", {"clip-path": f"url(#{clip_path_id})"})
+                    ET.SubElement(clipped_group, f"{{{SVG_NAMESPACE}}}rect", {"x": str(bbox['x']), "y": str(bbox['y']), "width": str(bbox_w), "height": str(bbox_h), "fill": "#FFFFFF"})
+                    ET.SubElement(clipped_group, f"{{{SVG_NAMESPACE}}}image", {"x": str(img_x), "y": str(img_y), "width": str(final_img_w), "height": str(final_img_h), f"{{{XLINK_NAMESPACE}}}href": data_uri})
+                    
+                    # 9. Replace old path with new group
+                    layer_group.remove(target_path_element)
+                    layer_group.insert(target_path_index, clipped_group)
+                    fill_applied_successfully = True
+            except Exception:
+                # Fallback to gradient on any error
+                pass
+
     if leaf_params['fill_type'] == "gradient" or not fill_applied_successfully:
         if target_path_element in list(layer_group):
             colors = COUNTRY_COLORS[country_name]
-            gradient_id = create_gradient_definition(defs_element, colors, pattern_id_base, leaf_params['direction'], leaf_params.get('transition', 10))
-            target_path_element.set("fill", f"url(#{gradient_id})")
-            if 'class' in target_path_element.attrib: del target_path_element.attrib['class']
+            gradient_id = create_gradient_definition(defs_element, colors, unique_id_base, leaf_params['direction'], leaf_params.get('transition', 10))
+            if gradient_id:
+                target_path_element.set("fill", f"url(#{gradient_id})")
+                if 'class' in target_path_element.attrib: del target_path_element.attrib['class']
+    
     return True, f"Processed {leaf_params['leaf_name']}."
 
 def process_svg(top_params=None, right_params=None, left_params=None):
@@ -185,22 +199,25 @@ def process_svg(top_params=None, right_params=None, left_params=None):
   </g>
 </svg>"""
     try:
+        # Clean up any previously generated elements before processing
         root = ET.fromstring(input_svg_content)
+        for path in root.findall(f".//{{{SVG_NAMESPACE}}}path[@processed]"):
+            del path.attrib['processed']
+        for el in root.findall(f".//{{{SVG_NAMESPACE}}}g[@clip-path]"):
+            el.getparent().remove(el)
+        defs_element = root.find(f".//{{{SVG_NAMESPACE}}}defs")
+        if defs_element is None: defs_element = ET.SubElement(root, f"{{{SVG_NAMESPACE}}}defs")
+        for item in list(defs_element):
+            item_id = item.get('id', '')
+            if 'gradient' in item_id or 'clip' in item_id:
+                defs_element.remove(item)
     except ET.ParseError as e:
-        return f"Fatal: Could not parse SVG: {e}", None
-    for path in root.findall(f".//{{{SVG_NAMESPACE}}}path[@processed]"):
-        del path.attrib['processed']
-    for el in root.findall(f".//{{{SVG_NAMESPACE}}}g[@clip-path]"):
-        el.getparent().remove(el)
-    defs_element = root.find(f".//{{{SVG_NAMESPACE}}}defs")
-    if defs_element is None: defs_element = ET.SubElement(root, f"{{{SVG_NAMESPACE}}}defs")
-    for item in list(defs_element):
-        item_id = item.get('id', '')
-        if 'gradient' in item_id or 'pattern' in item_id or 'clip' in item_id:
-            defs_element.remove(item)
+        return f"Fatal: Could not parse SVG template: {e}", None
+        
     layer_group = root.find(f".//{{{SVG_NAMESPACE}}}g[@id='Layer_1-2']")
     if layer_group is None:
         return "Fatal: Main layer group 'Layer_1-2' not found.", None
+        
     if left_params:
         left_leaf_id_method = {'type': 'specific_d', 'd_start': "m92.66,263.59c"}
         modify_leaf_fill(root, defs_element, layer_group, left_leaf_id_method, left_params)
@@ -210,6 +227,7 @@ def process_svg(top_params=None, right_params=None, left_params=None):
     if right_params:
         right_leaf_id_method = {'type': 'specific_d', 'd_start': "m465.83,320.23c"}
         modify_leaf_fill(root, defs_element, layer_group, right_leaf_id_method, right_params)
+        
     return "SVG content generated.", ET.tostring(root, encoding="unicode", method="xml")
 
 
@@ -229,13 +247,13 @@ def create_argument_parser(is_cli=False):
         parser.add_argument(
             '-o', '--output',
             required=True,
-            help="Output file path (without extension). e.g., 'my_logo'. Will generate 'my_logo.svg' and 'my_logo.png'."
+            help="Output file path (without extension). e.g., 'my_logo'. Will generate 'my_logo.svg', 'my_logo.png', and 'my_logo.pdf'."
         )
         parser.add_argument(
             '--png-width',
             type=int,
-            default=1200,
-            help="Width of the output PNG file in pixels. Default is 1200."
+            default=600,
+            help="Width of the output PNG file in pixels. Default is 600."
         )
 
     # --- Left Leaf Arguments ---
@@ -272,7 +290,7 @@ def create_argument_parser(is_cli=False):
 
 
 def generate_and_save_logo(output_path, top_params=None, right_params=None, left_params=None, png_width=1200):
-    """Generates the SVG, saves it, and saves a PNG version."""
+    """Generates the SVG, saves it, and saves PNG and PDF versions."""
     print("Generating SVG content...")
     status, svg_content = process_svg(top_params=top_params, right_params=right_params, left_params=left_params)
 
@@ -283,6 +301,7 @@ def generate_and_save_logo(output_path, top_params=None, right_params=None, left
     base_path, _ = os.path.splitext(output_path)
     svg_filepath = f"{base_path}.svg"
     png_filepath = f"{base_path}.png"
+    pdf_filepath = f"{base_path}.pdf"
 
     try:
         with open(svg_filepath, "w", encoding="utf-8") as f:
@@ -293,8 +312,12 @@ def generate_and_save_logo(output_path, top_params=None, right_params=None, left
             print(f"Generating PNG (width: {png_width}px)...")
             cairosvg.svg2png(bytestring=svg_content.encode('utf-8'), write_to=png_filepath, output_width=png_width)
             print(f"Successfully saved: {png_filepath}")
+
+            print("Generating PDF...")
+            cairosvg.svg2pdf(bytestring=svg_content.encode('utf-8'), write_to=pdf_filepath)
+            print(f"Successfully saved: {pdf_filepath}")
         else:
-            print("Skipping PNG generation: CairoSVG not found.")
+            print("Skipping PNG and PDF generation: CairoSVG not found.")
 
     except Exception as e:
         print(f"An error occurred while saving files: {e}")
