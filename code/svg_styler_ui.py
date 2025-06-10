@@ -31,8 +31,8 @@ class SvgStylerApp(tk.Tk):
         """
         super().__init__()
         self.title("SVG Leaf Styler")
-        self.geometry("800x650")
-        self.minsize(650, 550)
+        self.geometry("800x850")
+        self.minsize(650, 750)
         self.last_svg_content = None
 
         # A flag to ensure we only set the sash position once.
@@ -53,6 +53,8 @@ class SvgStylerApp(tk.Tk):
         self.preview_label.pack(fill='both', expand=True)
 
         self.controls = {}
+        self.controls['Left Leaf'] = self._create_leaf_controls(controls_frame, "Left Leaf")
+        ttk.Separator(controls_frame, orient='horizontal').pack(fill='x', pady=10, padx=5)
         self.controls['Top Leaf'] = self._create_leaf_controls(controls_frame, "Top Leaf")
         ttk.Separator(controls_frame, orient='horizontal').pack(fill='x', pady=10, padx=5)
         self.controls['Right Leaf'] = self._create_leaf_controls(controls_frame, "Right Leaf")
@@ -80,6 +82,7 @@ class SvgStylerApp(tk.Tk):
     def apply_startup_args(self, args):
         """Applies parsed command-line arguments to the UI controls."""
         leaf_map = {
+            'left': 'Left Leaf',
             'top': 'Top Leaf',
             'right': 'Right Leaf'
         }
@@ -197,7 +200,7 @@ class SvgStylerApp(tk.Tk):
 
     def update_preview(self):
         params_list = []
-        for leaf_name_key in ['Top Leaf', 'Right Leaf']:
+        for leaf_name_key in ['Left Leaf', 'Top Leaf', 'Right Leaf']:
             leaf_controls = self.controls[leaf_name_key]
             if leaf_controls['enabled'].get() and leaf_controls['country_name'].get():
                 params = {
@@ -212,10 +215,11 @@ class SvgStylerApp(tk.Tk):
                 }
                 params_list.append(params)
         
+        left_params = next((p for p in params_list if p['leaf_name'] == 'Left'), None)
         top_params = next((p for p in params_list if p['leaf_name'] == 'Top'), None)
         right_params = next((p for p in params_list if p['leaf_name'] == 'Right'), None)
         
-        status, svg_content = process_svg(top_params, right_params)
+        status, svg_content = process_svg(top_params=top_params, right_params=right_params, left_params=left_params)
         
         if not svg_content:
             self.preview_label.config(image=None, text=f"Error generating SVG:\n{status}")
@@ -229,7 +233,7 @@ class SvgStylerApp(tk.Tk):
             img = Image.open(io.BytesIO(png_data))
             self.photo_image = ImageTk.PhotoImage(img)
             self.preview_label.config(image=self.photo_image, text="")
-            self.save_button.config(state='normal' if (top_params or right_params) else 'disabled')
+            self.save_button.config(state='normal' if (top_params or right_params or left_params) else 'disabled')
         except Exception as e:
             self.preview_label.config(image=None, text=f"Error rendering preview:\n{e}")
             self.save_button.config(state='disabled')

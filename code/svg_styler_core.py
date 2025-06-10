@@ -5,7 +5,7 @@ import re
 import os
 import uuid
 import io
-import argparse  # <-- ADD THIS IMPORT
+import argparse
 
 # --- Dependency Check and Imports ---
 try:
@@ -161,7 +161,7 @@ def modify_leaf_fill(root_element, defs_element, layer_group, leaf_id_method, le
             if 'class' in target_path_element.attrib: del target_path_element.attrib['class']
     return True, f"Processed {leaf_params['leaf_name']}."
 
-def process_svg(top_params=None, right_params=None):
+def process_svg(top_params=None, right_params=None, left_params=None):
     """Generates the final SVG content as a string."""
     input_svg_content = """<?xml version="1.0" encoding="UTF-8"?>
 <svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 633.54 506.72">
@@ -189,6 +189,9 @@ def process_svg(top_params=None, right_params=None):
     layer_group = root.find(f".//{{{SVG_NAMESPACE}}}g[@id='Layer_1-2']")
     if layer_group is None:
         return "Fatal: Main layer group 'Layer_1-2' not found.", None
+    if left_params:
+        left_leaf_id_method = {'type': 'specific_d', 'd_start': "m92.66,263.59c"}
+        modify_leaf_fill(root, defs_element, layer_group, left_leaf_id_method, left_params)
     if top_params:
         top_leaf_id_method = {'type': 'specific_d', 'd_start': "m284.59,97c"}
         modify_leaf_fill(root, defs_element, layer_group, top_leaf_id_method, top_params)
@@ -223,6 +226,16 @@ def create_argument_parser(is_cli=False):
             help="Width of the output PNG file in pixels. Default is 1200."
         )
 
+    # --- Left Leaf Arguments ---
+    left_group = parser.add_argument_group('Left Leaf Options')
+    left_group.add_argument('--left-country', type=str, help='Name of the country for the left leaf. (e.g., "France")')
+    left_group.add_argument('--left-fill-type', choices=['gradient', 'flag-svg'], default='gradient', help='Fill type for the left leaf.')
+    left_group.add_argument('--left-direction', choices=['horizontal', 'vertical'], default='horizontal', help='Direction for gradient fill.')
+    left_group.add_argument('--left-transition', type=float, default=20.0, help='Transition softness for gradient (1-99).')
+    left_group.add_argument('--left-zoom', type=float, default=100.0, help='Zoom level for flag fill (25-400).')
+    left_group.add_argument('--left-pan-x', type=float, default=0.0, help='Horizontal pan for flag fill (-100 to 100).')
+    left_group.add_argument('--left-pan-y', type=float, default=0.0, help='Vertical pan for flag fill (-100 to 100).')
+    
     # --- Top Leaf Arguments ---
     top_group = parser.add_argument_group('Top Leaf Options')
     top_group.add_argument('--top-country', type=str, help='Name of the country for the top leaf. (e.g., "United States")')
@@ -246,10 +259,10 @@ def create_argument_parser(is_cli=False):
     return parser
 
 
-def generate_and_save_logo(output_path, top_params=None, right_params=None, png_width=1200):
+def generate_and_save_logo(output_path, top_params=None, right_params=None, left_params=None, png_width=1200):
     """Generates the SVG, saves it, and saves a PNG version."""
     print("Generating SVG content...")
-    status, svg_content = process_svg(top_params, right_params)
+    status, svg_content = process_svg(top_params=top_params, right_params=right_params, left_params=left_params)
 
     if not svg_content:
         print(f"Error: Could not generate SVG. Reason: {status}")
