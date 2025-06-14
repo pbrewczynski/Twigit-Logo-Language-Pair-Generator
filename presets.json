@@ -1,4 +1,10 @@
 {
+  "pl-en": {
+    "top_country": "Poland",
+    "top_fill_type": "gradient",
+    "top_direction": "vertical",
+    "top_transition": 42.0
+  },
   "cs-pl": {
     "top_country": "Czech Republic",
     "top_fill_type": "flag-svg",
@@ -37,6 +43,33 @@
     "right_fill_type": "gradient",
     "right_direction": "vertical",
     "right_transition": 42
+  },
+  "de-en": {
+    "top_country": "Germany",
+    "top_fill_type": "gradient",
+    "top_direction": "vertical",
+    "top_transition": 42
+  },
+  "en-de": {
+    "top_country": "United Kingdom",
+    "top_fill_type": "flag-svg",
+    "top_zoom": 100.0,
+    "top_pan_x": 0.0,
+    "top_pan_y": 0.0,
+    "right_country": "Germany",
+    "right_fill_type": "gradient",
+    "right_direction": "vertical",
+    "right_transition": 42
+  },
+   "de-pl": {
+    "top_country": "Germany",
+    "top_fill_type": "gradient",
+    "top_direction": "vertical",
+    "top_transition": 42,
+    "right_country": "Poland",
+    "right_fill_type": "gradient",
+    "right_direction": "vertical",
+    "right_transition": 41.9
   },
   "es-en": {
     "top_country": "Spain",
