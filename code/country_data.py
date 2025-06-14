@@ -46,7 +46,7 @@ COUNTRY_COLORS = {
     "Serbia": ["#FF0000", "#0000FF", "#FFFFFF"], # Red, Blue, White (coat of arms is complex)
     "Slovakia": ["#FFFFFF", "#0000FF", "#FF0000"], # White, Blue, Red (coat of arms is complex)
     "Slovenia": ["#FFFFFF", "#0000FF", "#FF0000"], # White, Blue, Red (coat of arms is complex)
-    "Spain": ["#FF0000", "#FFFF00", "#FF0000"], # Red, Yellow, Red (coat of arms is complex)
+    "Spain": ["#FF0000", "#F1BF00", "#FF0000"], # Red, Yellow, Red (coat of arms is complex)
     "Sweden": ["#0000FF", "#FFFF00"], # Blue, Yellow (cross)
     "Switzerland": ["#FF0000", "#FFFFFF"], # Red, White (cross)
     "Ukraine": ["#0057B7", "#FFD700"], # Blue, Yellow

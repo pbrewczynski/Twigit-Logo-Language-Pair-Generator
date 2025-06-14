@@ -8,6 +8,7 @@ from tkinter import ttk, messagebox, filedialog
 from PIL import Image, ImageTk
 import io
 import os
+import json # <-- Import the json module
 
 # --- Import core logic and data ---
 try:
@@ -19,7 +20,7 @@ except ImportError:
     # A simple tk root to show the error if core module fails
     root = tk.Tk()
     root.withdraw()
-    messagebox.showerror("Initialization Error", "Could not import from svg_styler_core.py.\nPlease ensure it is in the same directory and all its dependencies (like CairoSVG) are installed.")
+    messagebox.showerror("Initialization Error", "Could not import from svg_styler_core.py. Please ensure it is in the same directory and all its dependencies (like CairoSVG) are installed.")
     exit()
 
 # --- UI Application Class ---
@@ -70,6 +71,16 @@ class SvgStylerApp(tk.Tk):
         
         self.command_text_widget.insert('1.0', "Enable a leaf to see the equivalent command.")
         self.command_text_widget.config(state='disabled')
+
+        # --- NEW: Preset JSON Preview Section ---
+        json_frame = ttk.LabelFrame(controls_frame, text=" Preset JSON Preview ", padding="10")
+        json_frame.pack(side='bottom', fill='x', pady=(10, 0), padx=5)
+
+        self.json_text_widget = tk.Text(json_frame, height=10, wrap='word', relief='sunken', borderwidth=1, font=monospace_font)
+        self.json_text_widget.pack(fill='x', expand=True, padx=2, pady=2)
+        
+        self.json_text_widget.insert('1.0', 'Enable a leaf to generate a preset.')
+        self.json_text_widget.config(state='disabled')
 
 
         # --- Action Frame ---
@@ -234,6 +245,7 @@ class SvgStylerApp(tk.Tk):
         right_params = next((p for p in params_list if p['leaf_name'] == 'Right'), None)
         
         self.generate_and_display_command(left_params, top_params, right_params)
+        self.generate_and_display_json_preset(left_params, top_params, right_params) # <-- NEW
         
         status, svg_content = process_svg(top_params=top_params, right_params=right_params, left_params=left_params)
         
@@ -289,6 +301,51 @@ class SvgStylerApp(tk.Tk):
         self.command_text_widget.delete('1.0', tk.END)
         self.command_text_widget.insert('1.0', final_command)
         self.command_text_widget.config(state='disabled')
+
+    def generate_and_display_json_preset(self, left_params, top_params, right_params):
+        """Generates the preset JSON based on current UI settings and displays it."""
+        all_params_data = [
+            ('left', left_params),
+            ('top', top_params),
+            ('right', right_params)
+        ]
+        
+        preset_dict = {}
+        for prefix, params in all_params_data:
+            if params:
+                # Add country name
+                preset_dict[f'{prefix}_country'] = CODE_TO_COUNTRY_NAME[params['country_code']]
+                
+                # Add fill type
+                preset_dict[f'{prefix}_fill_type'] = params['fill_type']
+
+                # Add relevant parameters for the fill type
+                if params['fill_type'] == 'gradient':
+                    preset_dict[f'{prefix}_direction'] = params['direction']
+                    preset_dict[f'{prefix}_transition'] = round(params['transition'], 1)
+                else: # flag-svg
+                    preset_dict[f'{prefix}_zoom'] = round(params['zoom'], 1)
+                    preset_dict[f'{prefix}_pan_x'] = round(params['pan_x'], 1)
+                    preset_dict[f'{prefix}_pan_y'] = round(params['pan_y'], 1)
+
+        if not preset_dict:
+            final_json_text = 'Enable a leaf to generate a preset.'
+        else:
+            # We wrap the preset_dict in a placeholder key for nice formatting
+            wrapper_dict = {
+                '"your-preset-name"': preset_dict
+            }
+            # Use json.dumps for nice, indented formatting
+            raw_json = json.dumps(wrapper_dict, indent=4)
+            # A little string manipulation to remove the placeholder quotes
+            final_json_text = raw_json.replace('"\\"your-preset-name\\""', '"your-preset-name"')
+
+        # Update the text widget content
+        self.json_text_widget.config(state='normal')
+        self.json_text_widget.delete('1.0', tk.END)
+        self.json_text_widget.insert('1.0', final_json_text)
+        self.json_text_widget.config(state='disabled')
+
 
     def save_files(self):
         if not self.last_svg_content: return

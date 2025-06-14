@@ -6,7 +6,7 @@ import os
 import uuid
 import io
 import argparse
-import base64  # <-- Added import
+import base64
 
 # --- Dependency Check and Imports ---
 try:
@@ -109,10 +109,7 @@ def modify_leaf_fill(root_element, defs_element, layer_group, leaf_id_method, le
             break
     if target_path_element is None: return False, f"Path not found for {leaf_params['leaf_name']}"
     target_path_element.set('processed', 'true')
-    try:
-        target_path_index = list(layer_group).index(target_path_element)
-    except ValueError:
-        return False, "Internal Error: Path index not found."
+
     leaf_d_attribute = target_path_element.get("d")
     if not leaf_d_attribute: return False, "Target path has no 'd' attribute."
     
@@ -123,7 +120,7 @@ def modify_leaf_fill(root_element, defs_element, layer_group, leaf_id_method, le
         flag_svg_path = os.path.join("flags", f"{country_code}.svg")
         if os.path.exists(flag_svg_path):
             try:
-                # 1. Get flag's original dimensions for aspect ratio
+                # 1. Get flag's original dimensions
                 flag_tree = ET.parse(flag_svg_path)
                 flag_root = flag_tree.getroot()
                 flag_viewbox = flag_root.get("viewBox", "0 0 100 100").split()
@@ -154,27 +151,40 @@ def modify_leaf_fill(root_element, defs_element, layer_group, leaf_id_method, le
                     img_x -= (leaf_params.get('pan_x', 0.0) / 100.0) * (overhang_x / 2.0)
                     img_y -= (leaf_params.get('pan_y', 0.0) / 100.0) * (overhang_y / 2.0)
 
-                    # 6. Create the clipPath
-                    clip_path_id = f"clip-{unique_id_base}"
-                    clip_path_el = ET.SubElement(defs_element, f"{{{SVG_NAMESPACE}}}clipPath", {"id": clip_path_id})
-                    ET.SubElement(clip_path_el, f"{{{SVG_NAMESPACE}}}path", {"d": leaf_d_attribute})
-
-                    # 7. Read and Base64-encode the flag SVG
+                    # 6. Read and Base64-encode the flag SVG
                     with open(flag_svg_path, "rb") as f:
                         encoded_flag = base64.b64encode(f.read()).decode('ascii')
                     data_uri = f"data:image/svg+xml;base64,{encoded_flag}"
 
-                    # 8. Create the new group with the clipped image
-                    clipped_group = ET.Element(f"{{{SVG_NAMESPACE}}}g", {"clip-path": f"url(#{clip_path_id})"})
-                    ET.SubElement(clipped_group, f"{{{SVG_NAMESPACE}}}rect", {"x": str(bbox['x']), "y": str(bbox['y']), "width": str(bbox_w), "height": str(bbox_h), "fill": "#FFFFFF"})
-                    ET.SubElement(clipped_group, f"{{{SVG_NAMESPACE}}}image", {"x": str(img_x), "y": str(img_y), "width": str(final_img_w), "height": str(final_img_h), f"{{{XLINK_NAMESPACE}}}href": data_uri})
+                    # 7. Create the <pattern> element
+                    pattern_id = f"pattern-{unique_id_base}"
+                    pattern_el = ET.SubElement(defs_element, f"{{{SVG_NAMESPACE}}}pattern", {
+                        "id": pattern_id,
+                        "patternUnits": "userSpaceOnUse",
+                        "x": str(img_x),
+                        "y": str(img_y),
+                        "width": str(final_img_w),
+                        "height": str(final_img_h)
+                    })
                     
-                    # 9. Replace old path with new group
-                    layer_group.remove(target_path_element)
-                    layer_group.insert(target_path_index, clipped_group)
+                    # 8. Create the <image> inside the pattern
+                    ET.SubElement(pattern_el, f"{{{SVG_NAMESPACE}}}image", {
+                        "x": "0",
+                        "y": "0",
+                        "width": str(final_img_w),
+                        "height": str(final_img_h),
+                        f"{{{XLINK_NAMESPACE}}}href": data_uri
+                    })
+                    
+                    # 9. Apply the pattern fill to the target path
+                    target_path_element.set("fill", f"url(#{pattern_id})")
+                    if 'class' in target_path_element.attrib:
+                        del target_path_element.attrib['class']
+
                     fill_applied_successfully = True
-            except Exception:
+            except Exception as e:
                 # Fallback to gradient on any error
+                print(f"Warning: Failed to apply SVG flag pattern for {country_name}. Reason: {e}. Falling back to gradient.")
                 pass
 
     if leaf_params['fill_type'] == "gradient" or not fill_applied_successfully:
@@ -203,14 +213,16 @@ def process_svg(top_params=None, right_params=None, left_params=None):
         root = ET.fromstring(input_svg_content)
         for path in root.findall(f".//{{{SVG_NAMESPACE}}}path[@processed]"):
             del path.attrib['processed']
-        for el in root.findall(f".//{{{SVG_NAMESPACE}}}g[@clip-path]"):
-            el.getparent().remove(el)
+        
         defs_element = root.find(f".//{{{SVG_NAMESPACE}}}defs")
         if defs_element is None: defs_element = ET.SubElement(root, f"{{{SVG_NAMESPACE}}}defs")
+        
+        # Clear previous gradients and patterns
         for item in list(defs_element):
             item_id = item.get('id', '')
-            if 'gradient' in item_id or 'clip' in item_id:
+            if 'gradient' in item_id or 'pattern' in item_id:
                 defs_element.remove(item)
+
     except ET.ParseError as e:
         return f"Fatal: Could not parse SVG template: {e}", None
         
@@ -231,7 +243,7 @@ def process_svg(top_params=None, right_params=None, left_params=None):
     return "SVG content generated.", ET.tostring(root, encoding="unicode", method="xml")
 
 
-# --- NEW: Centralized Argument Parser ---
+# --- Centralized Argument Parser ---
 def create_argument_parser(is_cli=False):
     """
     Creates and configures an ArgumentParser.
@@ -271,35 +283,17 @@ def create_argument_parser(is_cli=False):
             help="Width of the output PNG file in pixels. Default is 600."
         )
 
-    # --- Left Leaf Arguments ---
-    left_group = parser.add_argument_group('Left Leaf Options')
-    left_group.add_argument('--left-country', type=str, help='Name of the country for the left leaf. (e.g., "France")')
-    left_group.add_argument('--left-fill-type', choices=['gradient', 'flag-svg'], default='gradient', help='Fill type for the left leaf.')
-    left_group.add_argument('--left-direction', choices=['horizontal', 'vertical'], default='horizontal', help='Direction for gradient fill.')
-    left_group.add_argument('--left-transition', type=float, default=20.0, help='Transition softness for gradient (1-99).')
-    left_group.add_argument('--left-zoom', type=float, default=100.0, help='Zoom level for flag fill (25-400).')
-    left_group.add_argument('--left-pan-x', type=float, default=0.0, help='Horizontal pan for flag fill (-100 to 100).')
-    left_group.add_argument('--left-pan-y', type=float, default=0.0, help='Vertical pan for flag fill (-100 to 100).')
-    
-    # --- Top Leaf Arguments ---
-    top_group = parser.add_argument_group('Top Leaf Options')
-    top_group.add_argument('--top-country', type=str, help='Name of the country for the top leaf. (e.g., "United States")')
-    top_group.add_argument('--top-fill-type', choices=['gradient', 'flag-svg'], default='gradient', help='Fill type for the top leaf.')
-    top_group.add_argument('--top-direction', choices=['horizontal', 'vertical'], default='horizontal', help='Direction for gradient fill.')
-    top_group.add_argument('--top-transition', type=float, default=20.0, help='Transition softness for gradient (1-99).')
-    top_group.add_argument('--top-zoom', type=float, default=100.0, help='Zoom level for flag fill (25-400).')
-    top_group.add_argument('--top-pan-x', type=float, default=0.0, help='Horizontal pan for flag fill (-100 to 100).')
-    top_group.add_argument('--top-pan-y', type=float, default=0.0, help='Vertical pan for flag fill (-100 to 100).')
-
-    # --- Right Leaf Arguments ---
-    right_group = parser.add_argument_group('Right Leaf Options')
-    right_group.add_argument('--right-country', type=str, help='Name of the country for the right leaf. (e.g., "Germany")')
-    right_group.add_argument('--right-fill-type', choices=['gradient', 'flag-svg'], default='gradient', help='Fill type for the right leaf.')
-    right_group.add_argument('--right-direction', choices=['horizontal', 'vertical'], default='horizontal', help='Direction for gradient fill.')
-    right_group.add_argument('--right-transition', type=float, default=20.0, help='Transition softness for gradient (1-99).')
-    right_group.add_argument('--right-zoom', type=float, default=100.0, help='Zoom level for flag fill (25-400).')
-    right_group.add_argument('--right-pan-x', type=float, default=0.0, help='Horizontal pan for flag fill (-100 to 100).')
-    right_group.add_argument('--right-pan-y', type=float, default=0.0, help='Vertical pan for flag fill (-100 to 100).')
+    # --- Leaf Arguments Groups ---
+    leaf_groups = {'left': 'Left', 'top': 'Top', 'right': 'Right'}
+    for prefix, title in leaf_groups.items():
+        group = parser.add_argument_group(f'{title} Leaf Options')
+        group.add_argument(f'--{prefix}-country', type=str, help=f'Name of the country for the {prefix} leaf.')
+        group.add_argument(f'--{prefix}-fill-type', choices=['gradient', 'flag-svg'], default='gradient', help=f'Fill type for the {prefix} leaf.')
+        group.add_argument(f'--{prefix}-direction', choices=['horizontal', 'vertical'], default='horizontal', help='Direction for gradient fill.')
+        group.add_argument(f'--{prefix}-transition', type=float, default=20.0, help='Transition softness for gradient (1-99).')
+        group.add_argument(f'--{prefix}-zoom', type=float, default=100.0, help='Zoom level for flag fill (25-400).')
+        group.add_argument(f'--{prefix}-pan-x', type=float, default=0.0, help='Horizontal pan for flag fill (-100 to 100).')
+        group.add_argument(f'--{prefix}-pan-y', type=float, default=0.0, help='Vertical pan for flag fill (-100 to 100).')
 
     return parser
 
@@ -319,6 +313,7 @@ def generate_and_save_logo(output_path, top_params=None, right_params=None, left
     pdf_filepath = f"{base_path}.pdf"
 
     try:
+        os.makedirs(os.path.dirname(svg_filepath), exist_ok=True)
         with open(svg_filepath, "w", encoding="utf-8") as f:
             f.write(svg_content)
         print(f"Successfully saved: {svg_filepath}")
