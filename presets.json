@@ -1,0 +1,72 @@
+{
+  "en-uk": {
+    "left_country": "United Kingdom",
+    "left_fill_type": "flag-svg",
+    "left_zoom": 104.3,
+    "left_pan_x": 13.5,
+    "left_pan_y": 0.0,
+    "top_country": "United Kingdom",
+    "top_fill_type": "flag-svg",
+    "top_zoom": 100.0,
+    "top_pan_x": 0.0,
+    "top_pan_y": 0.0,
+    "right_country": "Ukraine",
+    "right_fill_type": "gradient",
+    "right_direction": "vertical",
+    "right_transition": 41.9
+  },
+  "es-en": {
+    "top_country": "Spain",
+    "top_fill_type": "gradient",
+    "top_direction": "vertical",
+    "top_transition": 6.0
+  },
+  "es-pl": {
+    "top_country": "Spain",
+    "top_fill_type": "gradient",
+    "top_direction": "vertical",
+    "top_transition": 6.0,
+    "right_country": "Poland",
+    "right_fill_type": "gradient",
+    "right_direction": "vertical",
+    "right_transition": 41.9
+  },
+  "it-en": {
+    "top_country": "Italy",
+    "top_fill_type": "gradient",
+    "top_direction": "horizontal",
+    "top_transition": 69.4,
+    "right_country": "United Kingdom",
+    "right_fill_type": "flag-svg",
+    "right_zoom": 120.0
+  },
+  "uk-pl": {
+    "top_country": "Ukraine",
+    "top_fill_type": "gradient",
+    "top_direction": "vertical",
+    "top_transition": 42.3,
+    "right_country": "Poland",
+    "right_fill_type": "gradient",
+    "right_direction": "vertical",
+    "right_transition": 41.9
+  },
+  "zh-en": {
+    "top_country": "China",
+    "top_fill_type": "flag-svg",
+    "top_zoom": 272.0,
+    "top_pan_x": -31.7,
+    "top_pan_y": -51.0
+  },
+  "ru-en": {
+    "top_country": "Russia",
+    "top_fill_type": "gradient",
+    "top_direction": "vertical",
+    "top_transition": 99.0
+  },
+  "he-en": {
+    "top_country": "Israel",
+    "top_fill_type": "gradient",
+    "top_direction": "horizontal",
+    "top_transition": 20.0
+  }
+}

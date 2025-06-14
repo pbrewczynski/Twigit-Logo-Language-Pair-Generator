@@ -255,8 +255,14 @@ def create_argument_parser(is_cli=False):
         parser.add_argument(
             '-o', '--output',
             required=True,
-            help="Output file path (without extension). e.g., 'my_logo'.\n"
-                 "Will generate 'my_logo.svg', 'my_logo.png', and 'my_logo.pdf'."
+            help="For single generation: Output file path (without extension), e.g., 'my_logo'.\n"
+                 "For --generate-all: Output directory path, e.g., 'output_logos'."
+        )
+        parser.add_argument(
+            '--generate-all',
+            action='store_true',
+            help="Generate logos for all entries in presets.json.\n"
+                 "The --output argument will be used as the destination directory."
         )
         parser.add_argument(
             '--png-width',
