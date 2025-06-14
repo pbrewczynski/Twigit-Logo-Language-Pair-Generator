@@ -303,7 +303,7 @@ class SvgStylerApp(tk.Tk):
             with open(f"{base_path}.svg", "w", encoding="utf-8") as f: f.write(self.last_svg_content)
             if not cairosvg:
                 raise RuntimeError("CairoSVG is not installed, cannot save PNG or PDF.")
-            cairosvg.svg2png(bytestring=self.last_svg_content.encode('utf-8'), write_to=f"{base_path}.png", output_width=1200)
+            cairosvg.svg2png(bytestring=self.last_svg_content.encode('utf-8'), write_to=f"{base_path}.png", output_width=600)
             cairosvg.svg2pdf(bytestring=self.last_svg_content.encode('utf-8'), write_to=f"{base_path}.pdf")
             messagebox.showinfo("Success", f"Successfully saved:\n{base_path}.svg\n{base_path}.png\n{base_path}.pdf")
         except Exception as e:

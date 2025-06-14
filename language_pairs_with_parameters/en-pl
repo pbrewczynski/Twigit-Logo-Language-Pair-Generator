@@ -1,0 +1,16 @@
+svg_styler_cli.py --output my_logo \
+    --left-country "United Kingdom" \
+    --left-fill-type flag-svg \
+    --left-zoom 100.0 \
+    --left-pan-x 0.0 \
+    --left-pan-y 0.0 \
+    --top-country "United Kingdom" \
+    --top-fill-type flag-svg \
+    --top-zoom 100.0 \
+    --top-pan-x 0.0 \
+    --top-pan-y 0.0 \
+    --right-country "Poland" \
+    --right-fill-type gradient \
+    --right-direction vertical \
+    --right-transition 50.5
+
