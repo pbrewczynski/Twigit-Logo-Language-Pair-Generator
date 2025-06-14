@@ -3,14 +3,50 @@
 
 # svg_styler_cli.py
 
-# No need for argparse here, it's handled in the core module
+import json
+import argparse
 from svg_styler_core import generate_and_save_logo, COUNTRY_CODES, create_argument_parser
 
 def main():
-    # Get the parser from the core module, configured for CLI usage
+    # --- Preset Loading Logic ---
+    # Create a temporary parser just to find the --preset argument.
+    # We use add_help=False to prevent it from printing help and exiting on -h.
+    preset_parser = argparse.ArgumentParser(add_help=False)
+    preset_parser.add_argument('--preset', type=str)
+    # Use parse_known_args to find the preset value and ignore all other args.
+    preset_args, _ = preset_parser.parse_known_args()
+
+    preset_config = {}
+    if preset_args.preset:
+        try:
+            # Assumes presets.json is in the same directory as the script.
+            with open('presets.json', 'r') as f:
+                presets = json.load(f)
+            
+            preset_data = presets.get(preset_args.preset)
+            if preset_data:
+                print(f"Applying preset '{preset_args.preset}'...")
+                preset_config = preset_data
+            else:
+                print(f"Warning: Preset '{preset_args.preset}' not found in presets.json. Ignoring.")
+        except FileNotFoundError:
+            print("Warning: presets.json file not found. Cannot apply preset.")
+        except json.JSONDecodeError:
+            print("Warning: Could not parse presets.json. Check for syntax errors.")
+
+    # --- Main Argument Parsing ---
+    # Get the full parser from the core module.
     parser = create_argument_parser(is_cli=True)
+
+    # Apply the loaded preset configuration as defaults.
+    # These will be overridden by any arguments specified on the command line.
+    if preset_config:
+        parser.set_defaults(**preset_config)
+
+    # Now, parse all arguments fully.
     args = parser.parse_args()
 
+    # The rest of the script continues as before, using the final `args` object.
     top_params = None
     if args.top_country:
         if args.top_country not in COUNTRY_CODES:
@@ -59,11 +95,8 @@ def main():
             'pan_y': args.left_pan_y
         }
 
-    # The original check for at least one leaf is no longer needed for the CLI,
-    # as not providing a country will just generate a logo with default leaves.
-    # We can keep it for user-friendliness if desired.
     if not top_params and not right_params and not left_params:
-        parser.error("At least one leaf must be configured for the CLI. Use --top-country, --right-country, or --left-country.")
+        parser.error("At least one leaf must be configured. Use a preset or specify a country (e.g., --top-country).")
 
     generate_and_save_logo(args.output, top_params=top_params, right_params=right_params, left_params=left_params, png_width=args.png_width)
 

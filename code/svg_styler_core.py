@@ -243,11 +243,20 @@ def create_argument_parser(is_cli=False):
         formatter_class=argparse.RawTextHelpFormatter
     )
 
+    # General options
+    parser.add_argument(
+        '--preset',
+        type=str,
+        help="Use a predefined preset from presets.json (e.g., 'it-en').\n"
+             "These values can be overridden by other specific CLI flags."
+    )
+
     if is_cli:
         parser.add_argument(
             '-o', '--output',
             required=True,
-            help="Output file path (without extension). e.g., 'my_logo'. Will generate 'my_logo.svg', 'my_logo.png', and 'my_logo.pdf'."
+            help="Output file path (without extension). e.g., 'my_logo'.\n"
+                 "Will generate 'my_logo.svg', 'my_logo.png', and 'my_logo.pdf'."
         )
         parser.add_argument(
             '--png-width',
