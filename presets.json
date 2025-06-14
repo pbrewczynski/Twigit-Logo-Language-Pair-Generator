@@ -100,9 +100,10 @@
     "top_transition": 99.0
   },
   "he-en": {
-    "top_country": "Israel",
-    "top_fill_type": "gradient",
-    "top_direction": "horizontal",
-    "top_transition": 20.0
+        "top_country": "Israel",
+        "top_fill_type": "flag-svg",
+        "top_zoom": 149.4,
+        "top_pan_x": -3.8,
+        "top_pan_y": 0.0
   }
 }
